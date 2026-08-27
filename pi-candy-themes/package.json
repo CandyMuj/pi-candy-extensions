@@ -1,0 +1,33 @@
+{
+  "name": "pi-candy-themes",
+  "version": "0.2.0",
+  "description": "Selenized themes for Pi, based on Jan Warchoł's Selenized color palette.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-theme",
+    "selenized",
+    "tui",
+    "terminal",
+    "theme"
+  ],
+  "files": [
+    "themes",
+    "scripts",
+    "README.md"
+  ],
+  "scripts": {
+    "build:themes": "node scripts/generate-themes.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "pi": {
+    "themes": [
+      "./themes"
+    ]
+  }
+}
