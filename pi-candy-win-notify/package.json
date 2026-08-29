@@ -1,0 +1,42 @@
+{
+  "name": "pi-win-notify",
+  "version": "1.0.15",
+  "type": "module",
+  "description": "A Windows notification tool for pi — fast focus, response preview, elapsed time, mute, multi-language",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "wpf",
+    "notification",
+    "windows"
+  ],
+  "author": "ryanchan720",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryanchan720/pi-desktop-notify.git"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "files": [
+    "extensions/desktop-notify.ts",
+    "extensions/host.ps1",
+    "scripts/postinstall.js",
+    "README.md",
+    "README.zh.md",
+    "package.json"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "dependencies": {
+    "koffi": "^3.0.2"
+  },
+  "optionalDependencies": {
+    "@koromix/koffi-win32-x64": "3.0.2",
+    "@koromix/koffi-win32-ia32": "3.0.2"
+  }
+}
