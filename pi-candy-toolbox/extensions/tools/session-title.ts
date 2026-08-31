@@ -14,6 +14,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "../core/config";
+import { updateToolConfig } from "../core/config";
 
 export interface SessionTitleConfig {
   /** 生成模式："llm" 用模型生成（失败自动回退 local），"local" 零 token 本地截断 */
@@ -64,6 +65,10 @@ interface CtxLike {
   modelRegistry?: ModelRegistryLike;
   model?: ModelLike | undefined;
   signal?: AbortSignal | undefined;
+}
+/** 配置分支仅需要 ui.notify */
+interface ConfigCmdCtx {
+  ui: { notify(message: string, type?: "info" | "warning" | "error"): void };
 }
 
 // ── 采样 ─────────────────────────────────────────────────────────
@@ -264,14 +269,118 @@ const tool: ToolDefinition<SessionTitleConfig> = {
   description: "生成/重新生成会话标题：/candy-title [提示词]",
   defaultConfig: { mode: "llm", maxLength: 20, sampleChars: 200, autoFirst: false, model: undefined },
   register(pi: ExtensionAPI, config: SessionTitleConfig): void {
+    /** 配置分支：/candy-title config [key value]，raw 为 config 后的参数 */
+    const handleConfig = async (raw: string, ctx: ConfigCmdCtx): Promise<void> => {
+      const [sub, ...rest] = raw.split(/\s+/);
+      const val = rest.join(" ");
+
+      // 无参数：显示当前生效配置
+      if (!sub) {
+        ctx.ui.notify(
+          `mode=${config.mode} maxLength=${config.maxLength} sampleChars=${config.sampleChars} autoFirst=${config.autoFirst} model=${config.model ?? "当前会话模型"}`,
+          "info",
+        );
+        return;
+      }
+
+      const apply = (patch: Partial<SessionTitleConfig>): void => {
+        Object.assign(config, patch);
+        if (updateToolConfig("session-title", patch)) {
+          ctx.ui.notify(`已保存: ${JSON.stringify(patch)}`, "info");
+        } else {
+          ctx.ui.notify("配置写入失败（已生效但未持久化）", "warning");
+        }
+      };
+
+      if (sub === "mode") {
+        if (val === "llm" || val === "local") { apply({ mode: val }); return; }
+        ctx.ui.notify("mode: llm | local", "warning");
+        return;
+      }
+      if (sub === "maxLength") {
+        const n = parseInt(val);
+        if (Number.isInteger(n) && n >= 1 && n <= 50) { apply({ maxLength: n }); return; }
+        ctx.ui.notify("maxLength: 1~50 的整数", "warning");
+        return;
+      }
+      if (sub === "sampleChars") {
+        const n = parseInt(val);
+        if (Number.isInteger(n) && n >= 50 && n <= 2000) { apply({ sampleChars: n }); return; }
+        ctx.ui.notify("sampleChars: 50~2000 的整数", "warning");
+        return;
+      }
+      if (sub === "autoFirst") {
+        if (val === "true" || val === "1") { apply({ autoFirst: true }); return; }
+        if (val === "false" || val === "0") { apply({ autoFirst: false }); return; }
+        ctx.ui.notify("autoFirst: true | false", "warning");
+        return;
+      }
+      if (sub === "model") {
+        if (val === "none") {
+          config.model = undefined;
+          if (updateToolConfig("session-title", { model: undefined })) {
+            ctx.ui.notify("已清除 model（回退当前会话模型）", "info");
+          } else {
+            ctx.ui.notify("配置写入失败（已生效但未持久化）", "warning");
+          }
+          return;
+        }
+        if (val.includes("/")) { apply({ model: val }); return; }
+        ctx.ui.notify("model: provider/modelId 格式，如 openrouter/deepseek-chat（none 清除）", "warning");
+        return;
+      }
+      ctx.ui.notify("未知配置项: mode | maxLength | sampleChars | autoFirst | model", "warning");
+    };
+
     pi.registerCommand("candy-title", {
-      description: "生成/重新生成会话标题，可追加提示词（如 /candy-title 更简洁）",
+      description: "生成/重新生成会话标题（config 子命令查看/修改配置）",
+      getArgumentCompletions: (prefix) => {
+        const parts = prefix.trim().split(/\s+/).filter(Boolean);
+        const wantsNextLevel = prefix.endsWith(" ");
+        const first = parts[0] ?? "";
+        // 第一级：仅 config 可补全（生成提示词为自由文本）
+        if (parts.length === 0 || (parts.length === 1 && !wantsNextLevel)) {
+          if (!"config".startsWith(first)) return null;
+          return [{ value: "config", label: "查看/修改配置" }];
+        }
+        if (first !== "config") return null;
+        // 配置子命令
+        const sub = parts[1] ?? "";
+        const val = parts[2] ?? "";
+        if (parts.length === 1 || (parts.length === 2 && !wantsNextLevel)) {
+          const subs = ["mode", "maxLength", "sampleChars", "autoFirst", "model"];
+          const filtered = subs.filter((s) => s.startsWith(sub));
+          return filtered.length > 0 ? filtered.map((s) => ({ value: `config ${s}`, label: s })) : null;
+        }
+        if (sub === "mode") {
+          return ["llm", "local"].filter((s) => s.startsWith(val)).map((s) => ({ value: `config mode ${s}`, label: s }));
+        }
+        if (sub === "maxLength") {
+          return ["10", "15", "20", "30"].filter((s) => s.startsWith(val)).map((s) => ({ value: `config maxLength ${s}`, label: `${s} 字` }));
+        }
+        if (sub === "sampleChars") {
+          return ["100", "200", "300", "500"].filter((s) => s.startsWith(val)).map((s) => ({ value: `config sampleChars ${s}`, label: `${s} 字符` }));
+        }
+        if (sub === "autoFirst") {
+          return ["true", "false"].filter((s) => s.startsWith(val)).map((s) => ({ value: `config autoFirst ${s}`, label: s }));
+        }
+        if (sub === "model" && !val) {
+          return [{ value: "config model provider/modelId", label: "provider/modelId，如 openrouter/deepseek-chat（none 清除）" }];
+        }
+        return null;
+      },
       handler: async (args, ctx) => {
+        const raw = args?.trim() ?? "";
+        // 保留字 config：进入配置分支（生成提示词请勿以 config 开头）
+        if (raw === "config" || raw.startsWith("config ")) {
+          await handleConfig(raw.slice(6).trim(), ctx);
+          return;
+        }
         // 生成中反馈：spinner 动画 + footer 状态文字，结束时无论成败都清除
         ctx.ui.setWorkingIndicator({ frames: SPINNER_FRAMES, intervalMs: 100 });
         ctx.ui.setStatus("candy-title", "正在生成会话标题…");
         try {
-          const extra = args?.trim() || undefined;
+          const extra = raw || undefined;
           const oldName = pi.getSessionName();
           const { title, mode } = await generateTitle(ctx, config, extra);
           if (!title) {

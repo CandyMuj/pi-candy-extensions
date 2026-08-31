@@ -12,7 +12,7 @@
  *
  * 配置中未提到的工具按工具声明的 defaultEnabled 决定（默认启用）。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -57,6 +57,26 @@ export function loadRawConfig(): Record<string, unknown> {
     // 配置损坏：静默回退默认
   }
   return {};
+}
+
+/**
+ * 更新某工具在配置文件中的配置（保留其余字段与其他工具配置）。
+ * 返回是否写入成功；文件不存在时自动创建。
+ */
+export function updateToolConfig(toolId: string, patch: Record<string, unknown>): boolean {
+  try {
+    const raw = loadRawConfig();
+    const current =
+      raw[toolId] && typeof raw[toolId] === "object" && !Array.isArray(raw[toolId])
+        ? { ...(raw[toolId] as Record<string, unknown>) }
+        : {};
+    raw[toolId] = { ...current, ...patch };
+    writeFileSync(CONFIG_PATH, JSON.stringify(raw, null, 2), "utf-8");
+    return true;
+  } catch (e) {
+    console.error(`[candy-toolbox] 写入配置失败 ${CONFIG_PATH}: ${(e as Error)?.message ?? e}`);
+    return false;
+  }
 }
 
 /** 归一化单个工具的开关与配置，非法值一律回退默认 */

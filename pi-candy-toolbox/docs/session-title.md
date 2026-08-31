@@ -12,11 +12,28 @@
 /candy-title              标准生成
 /candy-title 英文标题     生成时追加「用户附加要求：英文标题」
 /candy-title 更简洁       生成时追加「用户附加要求：更简洁」
+/candy-title config       查看当前生效配置
+/candy-title config mode local   修改配置（见下表）
 ```
+
+> ⚠️ **`config` 为保留字**：生成提示词请勿以 `config` 开头，否则会被当作配置子命令。
 
 - 已有标题时覆盖，并提示 `「旧标题」→「新标题」`
 - 生成结果通过系统通知展示；失败（会话为空等）会提示原因
 - **生成中反馈**：执行期间显示 spinner 动画 + footer 状态文字「正在生成会话标题…」，结束后自动清除（无论成功/失败）
+- **配置修改立即生效并持久化**，支持 Tab 自动补全：
+
+| 配置子命令 | 说明 |
+|---|---|
+| `/candy-title config` | 查看当前生效配置 |
+| `/candy-title config mode <llm\|local>` | 生成模式 |
+| `/candy-title config maxLength <1~50>` | 标题字符上限 |
+| `/candy-title config sampleChars <50~2000>` | 每段采样字符数 |
+| `/candy-title config autoFirst <true\|false>` | 首次对话自动生成 |
+| `/candy-title config model <provider/modelId>` | 指定生成模型 |
+| `/candy-title config model none` | 清除 model，回退当前会话模型 |
+
+输入非法值时提示合法范围，不修改配置；修改写入 `candy-toolbox.json` 并同步到内存，无需重启。
 
 ## 配置项
 

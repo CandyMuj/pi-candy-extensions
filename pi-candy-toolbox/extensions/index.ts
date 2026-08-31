@@ -15,7 +15,7 @@ import hello from "./tools/hello";
 import sessionTitle from "./tools/session-title";
 
 /** 工具清单：新增工具在此登记（目录工具 import 后加一行，例如：myTool,） */
-const TOOLS: ToolDefinition[] = [
+const TOOLS: ToolDefinition<object>[] = [
   hello,
   sessionTitle,
   // import 后在此加一行，例如：myTool,（目录工具写 import myTool from "./tools/my-tool"，

@@ -45,7 +45,7 @@ pi install ./pi-candy-toolbox
 | 工具 id | 说明 | 文档 | 默认 |
 |---------|------|------|------|
 | `hello` | 示例工具：注册 `/candy-hello` 命令 | — | 启用 |
-| `session-title` | 生成/重新生成会话标题：`/candy-title [提示词]` | [docs/session-title.md](docs/session-title.md) | 启用 |
+| `session-title` | 生成/重新生成会话标题：`/candy-title [提示词]`，`config` 子命令查看/修改配置 | [docs/session-title.md](docs/session-title.md) | 启用 |
 
 ## 添加新工具
 
