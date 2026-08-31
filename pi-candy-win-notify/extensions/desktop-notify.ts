@@ -409,9 +409,10 @@ const TITLE_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "
 const TITLE_SPINNER_INTERVAL_MS = 100;
 /** 会阻塞等待用户决定的工具名（进入 ⏳ 状态） */
 const WAITING_TOOL_NAMES = new Set(["ask_user_question"]);
-const OSC_TITLE_PROGRESS_ACTIVE = "\x1b]9;4;3\x07";    // 标签页旋转动画
-const OSC_TITLE_PROGRESS_DONE = "\x1b]9;4;2;100\x07";  // 100% → Windows Terminal 绿色对勾
-const OSC_TITLE_PROGRESS_CLEAR = "\x1b]9;4;0\x07";     // 清除
+const OSC_TITLE_PROGRESS_ACTIVE = "\x1b]9;4;3\x07";    // st=3 不确定进度 → 标签页旋转动画
+const OSC_TITLE_PROGRESS_DONE = "\x1b]9;4;1;100\x07";  // st=1 pr=100 进度完成 → 绿色对勾
+const OSC_TITLE_PROGRESS_ERROR = "\x1b]9;4;2\x07";     // st=2 错误状态 → 红色错误指示
+const OSC_TITLE_PROGRESS_CLEAR = "\x1b]9;4;0\x07";     // st=0 清除
 
 let titleStatus: TitleStatus = "idle";
 let titleTimer: ReturnType<typeof setInterval> | null = null;
@@ -479,7 +480,7 @@ function setTitleStatus(status: TitleStatus): void {
       break;
     case "failed":
       setWindowTitle(`❌ ${currentTitle()}`);
-      process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
+      process.stdout.write(OSC_TITLE_PROGRESS_ERROR);
       break;
     case "idle":
       setWindowTitle(currentTitle());
