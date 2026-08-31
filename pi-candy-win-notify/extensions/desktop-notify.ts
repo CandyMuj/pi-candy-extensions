@@ -17,7 +17,7 @@
  *   - LLM 超时重试时自动抑制（2 秒冷却期，只在主动权交还用户时弹）
  *   - 多 pi 窗口安全（各自独立的句柄缓存）
  *   - Footer 状态指示: 🔔 开启 / 🔕 关闭
- *   - 终端标签页状态: 执行中动画 / ⏳ 等待用户 / ✓ 完成 / ✕ 失败
+ *   - 终端标签页状态: 执行中动画 / ⏳ 等待用户 / ✅ 完成 / ❌ 失败
  * ## 文件
  *
  *   本文件放在 ~/.pi/agent/extensions/ 下自动生效。
@@ -434,7 +434,14 @@ function composeTitle(icon: string, session: string | undefined, cwd: string, ma
 }
 
 function currentTitle(): string {
-  return composeTitle("", piApi?.getSessionName(), basename(process.cwd()), uniqueWindowId);
+  let session: string | undefined;
+  try {
+    session = piApi?.getSessionName();
+  } catch {
+    // 扩展加载阶段 runtime 尚未初始化，getSessionName 不可用，降级为无会话名标题
+    session = undefined;
+  }
+  return composeTitle("", session, basename(process.cwd()), uniqueWindowId);
 }
 
 function stopTitleSpinner(): void {
@@ -467,11 +474,11 @@ function setTitleStatus(status: TitleStatus): void {
       process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
       break;
     case "done":
-      setWindowTitle(`✓ ${currentTitle()}`);
+      setWindowTitle(`✅ ${currentTitle()}`);
       process.stdout.write(OSC_TITLE_PROGRESS_DONE);
       break;
     case "failed":
-      setWindowTitle(`✕ ${currentTitle()}`);
+      setWindowTitle(`❌ ${currentTitle()}`);
       process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
       break;
     case "idle":
