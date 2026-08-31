@@ -1,5 +1,5 @@
 {
-  "name": "pi-win-notify",
+  "name": "pi-candy-win-notify",
   "version": "1.0.15",
   "type": "module",
   "description": "A Windows notification tool for pi — fast focus, response preview, elapsed time, mute, multi-language",

@@ -8,6 +8,7 @@
  *   - title generation (extractPromptTitle, 25-char truncation)
  *   - abort/error detection (shouldSkipNotification, willRetry)
  *   - state machine (agent_start/end, compaction)
+ *   - terminal title state (composeTitle, verdictFromLastMessage)
  */
 
 import { describe, it } from "node:test";
@@ -81,6 +82,18 @@ const RETRY_PATTERN = /overloaded|provider.?returned.?error|rate.?limit|too many
 function willRetry(msg: { stopReason?: string; errorMessage?: string }): boolean {
   if (msg.stopReason !== "error" || !msg.errorMessage) return false;
   return RETRY_PATTERN.test(msg.errorMessage);
+}
+
+function composeTitle(icon: string, session: string | undefined, cwd: string, marker: string): string {
+  const name = session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
+  return `${icon ? `${icon} ` : ""}${name} [${marker}]`;
+}
+
+function verdictFromLastMessage(msg: { stopReason?: string; errorMessage?: string } | null): "failed" | "ok" {
+  if (!msg) return "ok";
+  if (msg.stopReason === "aborted") return "failed";
+  if (msg.stopReason === "error" && !willRetry(msg)) return "failed";
+  return "ok";
 }
 
 function shouldSkipNotification(
@@ -480,6 +493,50 @@ describe("NotificationStateMachine", () => {
     sm.fireTimer();
     assert.equal(sm.state, "notified");
     assert.equal(sm.notifications.length, 1);
+  });
+});
+
+describe("composeTitle", () => {
+  it("with session, icon and marker", () => {
+    assert.equal(composeTitle("✓", "my-session", "proj", "pi@abc"), "✓ π - my-session - proj [pi@abc]");
+  });
+
+  it("without session", () => {
+    assert.equal(composeTitle("", undefined, "proj", "pi@abc"), "π - proj [pi@abc]");
+  });
+
+  it("no icon means no leading space", () => {
+    assert.equal(composeTitle("", "s", "p", "m"), "π - s - p [m]");
+  });
+
+  it("icon keeps marker at end", () => {
+    assert.equal(composeTitle("✕", "s", "p", "m"), "✕ π - s - p [m]");
+  });
+});
+
+describe("verdictFromLastMessage", () => {
+  it("null message → ok", () => {
+    assert.equal(verdictFromLastMessage(null), "ok");
+  });
+
+  it("normal stop → ok", () => {
+    assert.equal(verdictFromLastMessage({ stopReason: "stop" }), "ok");
+  });
+
+  it("aborted → failed", () => {
+    assert.equal(verdictFromLastMessage({ stopReason: "aborted" }), "failed");
+  });
+
+  it("retry-able error → ok (will retry)", () => {
+    assert.equal(verdictFromLastMessage({ stopReason: "error", errorMessage: "request timed out" }), "ok");
+  });
+
+  it("non-retryable error → failed", () => {
+    assert.equal(verdictFromLastMessage({ stopReason: "error", errorMessage: "unknown bug" }), "failed");
+  });
+
+  it("error without errorMessage → failed", () => {
+    assert.equal(verdictFromLastMessage({ stopReason: "error" }), "failed");
   });
 });
 

@@ -17,6 +17,7 @@
  *   - LLM 超时重试时自动抑制（2 秒冷却期，只在主动权交还用户时弹）
  *   - 多 pi 窗口安全（各自独立的句柄缓存）
  *   - Footer 状态指示: 🔔 开启 / 🔕 关闭
+ *   - 终端标签页状态: 执行中动画 / ⏳ 等待用户 / ✓ 完成 / ✕ 失败
  * ## 文件
  *
  *   本文件放在 ~/.pi/agent/extensions/ 下自动生效。
@@ -32,7 +33,7 @@
 import koffi from "koffi";
 import { spawn, type ChildProcess } from "node:child_process";
 import { platform, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendFileSync, readFileSync, existsSync } from "node:fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -397,6 +398,89 @@ function willRetry(msg: { stopReason?: string; errorMessage?: string }): boolean
   return RETRY_PATTERN.test(msg.errorMessage);
 }
 
+// ── 终端标签页状态（执行中/等待/完成/失败）────────────────────────────────
+// 通过 OSC 0 改写终端标题，OSC 9;4 驱动 Windows Terminal/WezTerm 的标签页
+// 原生进度动画与完成绿勾。窗口标识 [pi@pid] 始终保留在标题末尾，供通知弹窗
+// "继续"按钮的 EnumWindows 兜底查找使用。
+
+type TitleStatus = "idle" | "running" | "waiting" | "done" | "failed";
+
+const TITLE_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const TITLE_SPINNER_INTERVAL_MS = 100;
+/** 会阻塞等待用户决定的工具名（进入 ⏳ 状态） */
+const WAITING_TOOL_NAMES = new Set(["ask_user_question"]);
+const OSC_TITLE_PROGRESS_ACTIVE = "\x1b]9;4;3\x07";    // 标签页旋转动画
+const OSC_TITLE_PROGRESS_DONE = "\x1b]9;4;2;100\x07";  // 100% → Windows Terminal 绿色对勾
+const OSC_TITLE_PROGRESS_CLEAR = "\x1b]9;4;0\x07";     // 清除
+
+let titleStatus: TitleStatus = "idle";
+let titleTimer: ReturnType<typeof setInterval> | null = null;
+let titleFrame = 0;
+/** 本轮是否出现不可恢复的错误（agent_start 时清零，agent_settled 时消费） */
+let runFatalError = false;
+
+/** 纯函数：依据本轮最后一条 assistant 消息判定最终结果 */
+function verdictFromLastMessage(msg: { stopReason?: string; errorMessage?: string } | null): "failed" | "ok" {
+  if (!msg) return "ok";
+  if (msg.stopReason === "aborted") return "failed"; // 用户强制中断
+  if (msg.stopReason === "error" && !willRetry(msg)) return "failed"; // 不可重试的 API/工具错误
+  return "ok";
+}
+
+/** 纯函数：组装标题文本 */
+function composeTitle(icon: string, session: string | undefined, cwd: string, marker: string): string {
+  const name = session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
+  return `${icon ? `${icon} ` : ""}${name} [${marker}]`;
+}
+
+function currentTitle(): string {
+  return composeTitle("", piApi?.getSessionName(), basename(process.cwd()), uniqueWindowId);
+}
+
+function stopTitleSpinner(): void {
+  if (titleTimer) {
+    clearInterval(titleTimer);
+    titleTimer = null;
+  }
+  titleFrame = 0;
+}
+
+function startTitleSpinner(): void {
+  stopTitleSpinner();
+  titleTimer = setInterval(() => {
+    const frame = TITLE_SPINNER_FRAMES[titleFrame % TITLE_SPINNER_FRAMES.length];
+    titleFrame++;
+    setWindowTitle(`${frame} ${currentTitle()}`);
+  }, TITLE_SPINNER_INTERVAL_MS);
+}
+
+function setTitleStatus(status: TitleStatus): void {
+  titleStatus = status;
+  stopTitleSpinner();
+  switch (status) {
+    case "running":
+      startTitleSpinner();
+      process.stdout.write(OSC_TITLE_PROGRESS_ACTIVE);
+      break;
+    case "waiting":
+      setWindowTitle(`⏳ ${currentTitle()}`);
+      process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
+      break;
+    case "done":
+      setWindowTitle(`✓ ${currentTitle()}`);
+      process.stdout.write(OSC_TITLE_PROGRESS_DONE);
+      break;
+    case "failed":
+      setWindowTitle(`✕ ${currentTitle()}`);
+      process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
+      break;
+    case "idle":
+      setWindowTitle(currentTitle());
+      process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
+      break;
+  }
+}
+
 // ── 扩展入口 ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -404,7 +488,7 @@ export default function (pi: ExtensionAPI) {
   piApi = pi;
   initWin32();
   uniqueWindowId = `pi@${process.pid.toString(36)}`;
-  process.stdout.write(`\x1b]0;${uniqueWindowId}\x07`);
+  setTitleStatus("idle");
   log(`windowId = ${uniqueWindowId}`);
   cacheTerminalHwnd();
 
@@ -566,5 +650,47 @@ export default function (pi: ExtensionAPI) {
       log(`notification: "${title}" body="${body}"`);
       showNotification(title, body);
     }, delay);
+  });
+
+  // ── 终端标签页状态机 ──────────────────────────────────────────────────────
+  pi.on("agent_start", () => {
+    runFatalError = false;
+    setTitleStatus("running");
+  });
+
+  pi.on("tool_execution_start", (event) => {
+    if (WAITING_TOOL_NAMES.has(event.toolName)) setTitleStatus("waiting");
+  });
+
+  pi.on("tool_execution_end", (event) => {
+    if (WAITING_TOOL_NAMES.has(event.toolName)) setTitleStatus("running");
+  });
+
+  pi.on("agent_end", (event) => {
+    if (verdictFromLastMessage(getLastAssistantMessage(event)) === "failed") {
+      runFatalError = true;
+    }
+  });
+
+  pi.on("session_compact_failed", (event) => {
+    if (!event.willRetry) runFatalError = true;
+  });
+
+  pi.on("agent_settled", () => {
+    if (titleStatus === "running" || titleStatus === "waiting") {
+      setTitleStatus(runFatalError ? "failed" : "done");
+    }
+  });
+
+  // pi 在会话切换/重命名时会重置终端标题，这里重新应用当前状态
+  pi.on("session_start", () => {
+    runFatalError = false;
+    setTitleStatus("idle");
+  });
+  pi.on("session_info_changed", () => setTitleStatus(titleStatus));
+
+  pi.on("session_shutdown", () => {
+    stopTitleSpinner();
+    process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
   });
 }
