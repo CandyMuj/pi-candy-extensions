@@ -16,7 +16,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "../core/config";
 
 export interface SessionTitleConfig {
-  /** 生成模式："llm" 用当前模型（失败回退 local），"local" 零 token 本地截断 */
+  /** 生成模式："llm" 用模型生成（失败自动回退 local），"local" 零 token 本地截断 */
   mode: "llm" | "local";
   /** 标题字符上限（中文字符） */
   maxLength: number;
@@ -24,6 +24,8 @@ export interface SessionTitleConfig {
   sampleChars: number;
   /** 首次对话结束自动生成（默认关，手动命令为主） */
   autoFirst: boolean;
+  /** 指定模型（provider/modelId，如 "openrouter/deepseek-chat"），留空用当前会话模型 */
+  model?: string;
 }
 
 const LLM_TIMEOUT_MS = 30_000;
@@ -47,12 +49,15 @@ interface ResultLike {
   stopReason?: string;
   errorMessage?: string;
 }
-interface ModelRegistryLike {
-  /** 官方完整调用：内部处理认证解析、baseUrl 覆盖、headers/env 合并 */
-  complete(model: unknown, context: { systemPrompt?: string; messages: unknown[] }, options?: Record<string, unknown>): Promise<ResultLike>;
-}
 interface ModelLike {
   provider: string;
+  id: string;
+}
+interface ModelRegistryLike {
+  /** 官方完整调用：内部处理认证解析、baseUrl 覆盖、headers/env 合并 */
+  complete(model: ModelLike, context: { systemPrompt?: string; messages: unknown[] }, options?: Record<string, unknown>): Promise<ResultLike>;
+  /** 按 provider + modelId 精确查找已配置模型 */
+  find(provider: string, modelId: string): ModelLike | undefined;
 }
 interface CtxLike {
   sessionManager?: { getEntries(): EntryLike[] };
@@ -151,35 +156,73 @@ export function generateTitleLocal(samples: Samples, maxLength: number): string 
   return cleanupTitle(cleanText(base), maxLength);
 }
 
-/** 静默调用当前模型生成标题（不产生会话消息）；走 modelRegistry.complete 官方路径 */
-async function generateTitleLlm(ctx: CtxLike, prompt: { system: string; user: string }): Promise<string> {
-  const model = ctx.model;
-  const registry = ctx.modelRegistry;
-  if (!model || !registry) throw new Error("当前无可用模型");
-  const result = await withTimeout(
-    registry.complete(
-      model,
-      {
-        systemPrompt: prompt.system,
-        messages: [{ role: "user", content: [{ type: "text", text: prompt.user }] }],
-      },
-      {
-        maxTokens: 20,
-        temperature: 0.3,
-        signal: ctx.signal,
-      },
-    ),
-    LLM_TIMEOUT_MS,
-  );
-  if (result.stopReason === "error" || result.stopReason === "aborted" || result.errorMessage) {
-    throw new Error(result.errorMessage ?? `模型调用失败: ${result.stopReason}`);
+/** 解析配置的模型（provider/modelId 格式）；未配置或解析失败返回 undefined */
+function resolveConfiguredModel(registry: ModelRegistryLike, spec: string | undefined): ModelLike | undefined {
+  if (!spec?.trim()) return undefined;
+  const [provider, modelId] = spec.trim().split("/");
+  if (!provider || !modelId) {
+    console.error(`[candy-toolbox] session-title: model 配置格式应为 provider/modelId，当前值: ${spec}`);
+    return undefined;
   }
-  const text = (result.content ?? [])
-    .filter((b): b is { type: string; text: string } => b?.type === "text" && typeof b.text === "string")
-    .map((b) => b.text)
-    .join("");
-  if (!text.trim()) throw new Error("模型返回空内容");
-  return text;
+  const m = registry.find(provider, modelId);
+  if (!m) {
+    console.error(`[candy-toolbox] session-title: 配置的模型 ${spec} 未找到，回退当前会话模型`);
+    return undefined;
+  }
+  return m;
+}
+
+/** 静默调用模型生成标题（不产生会话消息）；走 modelRegistry.complete 官方路径 */
+async function generateTitleLlm(
+  ctx: CtxLike,
+  config: SessionTitleConfig,
+  prompt: { system: string; user: string },
+): Promise<string> {
+  const registry = ctx.modelRegistry;
+  if (!registry) throw new Error("当前无可用模型");
+
+  // 候选模型：配置的模型（可选）→ 当前会话模型，去重
+  const candidates: ModelLike[] = [];
+  const configured = resolveConfiguredModel(registry, config.model);
+  if (configured) candidates.push(configured);
+  if (ctx.model && !candidates.some((m) => m.provider === ctx.model!.provider && m.id === ctx.model!.id)) {
+    candidates.push(ctx.model);
+  }
+  if (candidates.length === 0) throw new Error("当前无可用模型");
+
+  let lastErr: unknown = null;
+  for (const model of candidates) {
+    try {
+      const result = await withTimeout(
+        registry.complete(
+          model,
+          {
+            systemPrompt: prompt.system,
+            messages: [{ role: "user", content: [{ type: "text", text: prompt.user }] }],
+          },
+          {
+            maxTokens: 20,
+            temperature: 0.3,
+            signal: ctx.signal,
+          },
+        ),
+        LLM_TIMEOUT_MS,
+      );
+      if (result.stopReason === "error" || result.stopReason === "aborted" || result.errorMessage) {
+        throw new Error(result.errorMessage ?? `模型调用失败: ${result.stopReason}`);
+      }
+      const text = (result.content ?? [])
+        .filter((b): b is { type: string; text: string } => b?.type === "text" && typeof b.text === "string")
+        .map((b) => b.text)
+        .join("");
+      if (!text.trim()) throw new Error("模型返回空内容");
+      return text;
+    } catch (e) {
+      lastErr = e;
+      console.error(`[candy-toolbox] session-title: 模型 ${model.provider}/${model.id} 调用失败: ${(e as Error)?.message ?? e}`);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("模型调用失败");
 }
 
 /** 超时保护 */
@@ -204,7 +247,7 @@ export async function generateTitle(
 
   if (config.mode === "llm") {
     try {
-      const title = cleanupTitle(await generateTitleLlm(ctx, prompt), config.maxLength);
+      const title = cleanupTitle(await generateTitleLlm(ctx, config, prompt), config.maxLength);
       if (title) return { title, mode: "llm" };
     } catch (e) {
       // LLM 不可用：记录原因，回退 local
@@ -219,7 +262,7 @@ export async function generateTitle(
 const tool: ToolDefinition<SessionTitleConfig> = {
   id: "session-title",
   description: "生成/重新生成会话标题：/candy-title [提示词]",
-  defaultConfig: { mode: "llm", maxLength: 20, sampleChars: 200, autoFirst: false },
+  defaultConfig: { mode: "llm", maxLength: 20, sampleChars: 200, autoFirst: false, model: undefined },
   register(pi: ExtensionAPI, config: SessionTitleConfig): void {
     pi.registerCommand("candy-title", {
       description: "生成/重新生成会话标题，可追加提示词（如 /candy-title 更简洁）",
