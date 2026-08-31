@@ -105,13 +105,13 @@ function loadConfig(): Config {
         timeout: saved.timeout ?? 15,
         opacity: saved.opacity ?? 1.0,
         messageMode: saved.messageMode ?? "response",
-        lang: saved.lang ?? "en",
+        lang: saved.lang ?? "zh",
         muteUntil: saved.muteUntil,
         titleStatus: normalizeTitleStatus(saved.titleStatus),
       };
     }
   } catch { /* */ }
-  return { timeout: 15, opacity: 1.0, messageMode: "response", lang: "en", titleStatus: { ...DEFAULT_TITLE_STATUS } };
+  return { timeout: 15, opacity: 1.0, messageMode: "response", lang: "zh", titleStatus: { ...DEFAULT_TITLE_STATUS } };
 }
 
 function saveConfig(c: Config): void {
