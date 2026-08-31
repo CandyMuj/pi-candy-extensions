@@ -18,6 +18,7 @@
  *   - 多 pi 窗口安全（各自独立的句柄缓存）
  *   - Footer 状态指示: 🔔 开启 / 🔕 关闭
  *   - 终端标签页状态: 执行中动画 / ⏳ 等待用户 / ✅ 完成 / ❌ 失败
+ *     (每个状态可在 candy-win-notify.json 的 titleStatus 中选择 native 原生指示或 compat 标题 emoji)
  * ## 文件
  *
  *   本文件放在 ~/.pi/agent/extensions/ 下自动生效。
@@ -72,17 +73,45 @@ let psHostLastError = "";
 let piApi: ExtensionAPI | null = null;
 
 // ── 可配置项 ────────────────────────────────────────────────────────────────
-const CONFIG_PATH = join(getAgentDir(), "notify.json");
-type Config = { timeout: number; opacity: number; messageMode: "fixed" | "response"; lang: "zh" | "en" | "ja" | "ko"; muteUntil?: number };
+const CONFIG_PATH = join(getAgentDir(), "candy-win-notify.json");
+
+type TitleStatusMode = "native" | "compat";
+type TitleStatusConfig = Record<Exclude<TitleStatus, "idle">, TitleStatusMode>;
+type Config = { timeout: number; opacity: number; messageMode: "fixed" | "response"; lang: "zh" | "en" | "ja" | "ko"; muteUntil?: number; titleStatus: TitleStatusConfig };
+
+/** 各状态默认显示方式：native=终端原生指示（OSC 9;4），compat=标题 emoji/动画 */
+const DEFAULT_TITLE_STATUS: TitleStatusConfig = {
+  running: "native",
+  waiting: "compat",
+  done: "compat",
+  failed: "compat",
+};
+
+/** 纯函数：校验并归一化 titleStatus 配置，非法值回退默认 */
+function normalizeTitleStatus(raw: unknown): TitleStatusConfig {
+  const src = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const out = { ...DEFAULT_TITLE_STATUS };
+  for (const key of Object.keys(DEFAULT_TITLE_STATUS) as (keyof TitleStatusConfig)[]) {
+    if (src[key] === "native" || src[key] === "compat") out[key] = src[key];
+  }
+  return out;
+}
 
 function loadConfig(): Config {
   try {
     if (existsSync(CONFIG_PATH)) {
       const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-      return { timeout: saved.timeout ?? 15, opacity: saved.opacity ?? 1.0, messageMode: saved.messageMode ?? "response", lang: saved.lang ?? "en", muteUntil: saved.muteUntil };
+      return {
+        timeout: saved.timeout ?? 15,
+        opacity: saved.opacity ?? 1.0,
+        messageMode: saved.messageMode ?? "response",
+        lang: saved.lang ?? "en",
+        muteUntil: saved.muteUntil,
+        titleStatus: normalizeTitleStatus(saved.titleStatus),
+      };
     }
   } catch { /* */ }
-  return { timeout: 15, opacity: 1.0, messageMode: "response", lang: "en" };
+  return { timeout: 15, opacity: 1.0, messageMode: "response", lang: "en", titleStatus: { ...DEFAULT_TITLE_STATUS } };
 }
 
 function saveConfig(c: Config): void {
@@ -410,6 +439,7 @@ const TITLE_SPINNER_INTERVAL_MS = 100;
 /** 会阻塞等待用户决定的工具名（进入 ⏳ 状态） */
 const WAITING_TOOL_NAMES = new Set(["ask_user_question"]);
 const OSC_TITLE_PROGRESS_ACTIVE = "\x1b]9;4;3\x07";    // st=3 不确定进度 → 标签页旋转动画
+const OSC_TITLE_PROGRESS_PAUSED = "\x1b]9;4;4\x07";    // st=4 暂停（等待用户）
 const OSC_TITLE_PROGRESS_DONE = "\x1b]9;4;1;100\x07";  // st=1 pr=100 进度完成 → 绿色对勾
 const OSC_TITLE_PROGRESS_ERROR = "\x1b]9;4;2\x07";     // st=2 错误状态 → 红色错误指示
 const OSC_TITLE_PROGRESS_CLEAR = "\x1b]9;4;0\x07";     // st=0 清除
@@ -462,30 +492,40 @@ function startTitleSpinner(): void {
   }, TITLE_SPINNER_INTERVAL_MS);
 }
 
+/** 兼容模式的状态图标（running 用标题动画） */
+const STATUS_ICONS: Record<Exclude<TitleStatus, "idle">, string | null> = {
+  running: null,
+  waiting: "⏳",
+  done: "✅",
+  failed: "❌",
+};
+
+/** 原生模式的 OSC 9;4 序列 */
+const STATUS_PROGRESS: Record<Exclude<TitleStatus, "idle">, string> = {
+  running: OSC_TITLE_PROGRESS_ACTIVE,
+  waiting: OSC_TITLE_PROGRESS_PAUSED,
+  done: OSC_TITLE_PROGRESS_DONE,
+  failed: OSC_TITLE_PROGRESS_ERROR,
+};
+
 function setTitleStatus(status: TitleStatus): void {
   titleStatus = status;
   stopTitleSpinner();
-  switch (status) {
-    case "running":
-      startTitleSpinner();
-      process.stdout.write(OSC_TITLE_PROGRESS_ACTIVE);
-      break;
-    case "waiting":
-      setWindowTitle(`⏳ ${currentTitle()}`);
-      process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
-      break;
-    case "done":
-      setWindowTitle(`✅ ${currentTitle()}`);
-      process.stdout.write(OSC_TITLE_PROGRESS_DONE);
-      break;
-    case "failed":
-      setWindowTitle(`❌ ${currentTitle()}`);
-      process.stdout.write(OSC_TITLE_PROGRESS_ERROR);
-      break;
-    case "idle":
-      setWindowTitle(currentTitle());
-      process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
-      break;
+  if (status === "idle") {
+    setWindowTitle(currentTitle());
+    process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
+    return;
+  }
+  if (config.titleStatus[status] === "native") {
+    // 原生模式：标题保持干净（含窗口标识），状态由终端原生指示表达
+    setWindowTitle(currentTitle());
+    process.stdout.write(STATUS_PROGRESS[status]);
+  } else {
+    // 兼容模式：状态由标题图标/动画表达，同时清除原生指示避免重复
+    const icon = STATUS_ICONS[status];
+    if (icon) setWindowTitle(`${icon} ${currentTitle()}`);
+    else startTitleSpinner();
+    process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
   }
 }
 

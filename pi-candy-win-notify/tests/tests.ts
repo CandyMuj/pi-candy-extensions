@@ -96,6 +96,22 @@ function verdictFromLastMessage(msg: { stopReason?: string; errorMessage?: strin
   return "ok";
 }
 
+const DEFAULT_TITLE_STATUS = {
+  running: "native",
+  waiting: "compat",
+  done: "compat",
+  failed: "compat",
+} as const;
+
+function normalizeTitleStatus(raw: unknown): Record<string, string> {
+  const src = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const out: Record<string, string> = { ...DEFAULT_TITLE_STATUS };
+  for (const key of Object.keys(DEFAULT_TITLE_STATUS)) {
+    if (src[key] === "native" || src[key] === "compat") out[key] = src[key];
+  }
+  return out;
+}
+
 function shouldSkipNotification(
   msg: { stopReason?: string; errorMessage?: string } | null,
   isCompacting: boolean,
@@ -537,6 +553,30 @@ describe("verdictFromLastMessage", () => {
 
   it("error without errorMessage → failed", () => {
     assert.equal(verdictFromLastMessage({ stopReason: "error" }), "failed");
+  });
+});
+
+describe("normalizeTitleStatus", () => {
+  it("missing config → defaults", () => {
+    assert.deepEqual(normalizeTitleStatus(undefined), { running: "native", waiting: "compat", done: "compat", failed: "compat" });
+  });
+
+  it("partial override keeps other defaults", () => {
+    assert.deepEqual(
+      normalizeTitleStatus({ running: "compat", done: "native" }),
+      { running: "compat", waiting: "compat", done: "native", failed: "compat" },
+    );
+  });
+
+  it("invalid values fall back to defaults", () => {
+    assert.deepEqual(
+      normalizeTitleStatus({ running: "bothe", waiting: "native" }),
+      { running: "native", waiting: "native", done: "compat", failed: "compat" },
+    );
+  });
+
+  it("non-object input → defaults", () => {
+    assert.deepEqual(normalizeTitleStatus("oops"), { running: "native", waiting: "compat", done: "compat", failed: "compat" });
   });
 });
 
