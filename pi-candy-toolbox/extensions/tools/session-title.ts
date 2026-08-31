@@ -28,6 +28,9 @@ export interface SessionTitleConfig {
 
 const LLM_TIMEOUT_MS = 30_000;
 
+/** 生成中 spinner 动画帧（与 win-notify 同款盲文动画） */
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
 // ── 局部最小类型（pi-ai / pi 结构子集，零额外依赖）──────────
 interface EntryLike {
   /** 会话 entry 类型，仅处理 "message"（真实结构为 { type, message } 嵌套） */
@@ -221,19 +224,27 @@ const tool: ToolDefinition<SessionTitleConfig> = {
     pi.registerCommand("candy-title", {
       description: "生成/重新生成会话标题，可追加提示词（如 /candy-title 更简洁）",
       handler: async (args, ctx) => {
-        const extra = args?.trim() || undefined;
-        const oldName = pi.getSessionName();
-        const { title, mode } = await generateTitle(ctx, config, extra);
-        if (!title) {
-          ctx.ui.notify("无法生成标题：会话为空或提取不到内容", "error");
-          return;
+        // 生成中反馈：spinner 动画 + footer 状态文字，结束时无论成败都清除
+        ctx.ui.setWorkingIndicator({ frames: SPINNER_FRAMES, intervalMs: 100 });
+        ctx.ui.setStatus("candy-title", "正在生成会话标题…");
+        try {
+          const extra = args?.trim() || undefined;
+          const oldName = pi.getSessionName();
+          const { title, mode } = await generateTitle(ctx, config, extra);
+          if (!title) {
+            ctx.ui.notify("无法生成标题：会话为空或提取不到内容", "error");
+            return;
+          }
+          pi.setSessionName(title);
+          const fallback = config.mode === "llm" && mode === "local" ? "（LLM 不可用，已用本地模式）" : "";
+          ctx.ui.notify(
+            oldName ? `标题已更新：「${oldName}」→「${title}」${fallback}` : `会话标题已设置：「${title}」${fallback}`,
+            "info",
+          );
+        } finally {
+          ctx.ui.setWorkingIndicator();
+          ctx.ui.setStatus("candy-title", undefined);
         }
-        pi.setSessionName(title);
-        const fallback = config.mode === "llm" && mode === "local" ? "（LLM 不可用，已用本地模式）" : "";
-        ctx.ui.notify(
-          oldName ? `标题已更新：「${oldName}」→「${title}」${fallback}` : `会话标题已设置：「${title}」${fallback}`,
-          "info",
-        );
       },
     });
 
