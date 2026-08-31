@@ -18,7 +18,7 @@
  *   - 多 pi 窗口安全（各自独立的句柄缓存）
  *   - Footer 状态指示: 🔔 开启 / 🔕 关闭
  *   - 终端标签页状态: 执行中动画 / ⏳ 等待用户 / ✅ 完成 / ❌ 失败
- *     (每个状态可在 candy-win-notify.json 的 titleStatus 中选择 native 原生指示或 compat 标题 emoji)
+ *     (每个状态可在 candy-win-notify.json 的 titleStatus 中选择 native 原生指示 / compat 标题 emoji / both 同时启用)
  * ## 文件
  *
  *   本文件放在 ~/.pi/agent/extensions/ 下自动生效。
@@ -75,7 +75,7 @@ let piApi: ExtensionAPI | null = null;
 // ── 可配置项 ────────────────────────────────────────────────────────────────
 const CONFIG_PATH = join(getAgentDir(), "candy-win-notify.json");
 
-type TitleStatusMode = "native" | "compat";
+type TitleStatusMode = "native" | "compat" | "both";
 type TitleStatusConfig = Record<Exclude<TitleStatus, "idle">, TitleStatusMode>;
 type Config = { timeout: number; opacity: number; messageMode: "fixed" | "response"; lang: "zh" | "en" | "ja" | "ko"; muteUntil?: number; titleStatus: TitleStatusConfig };
 
@@ -92,7 +92,7 @@ function normalizeTitleStatus(raw: unknown): TitleStatusConfig {
   const src = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const out = { ...DEFAULT_TITLE_STATUS };
   for (const key of Object.keys(DEFAULT_TITLE_STATUS) as (keyof TitleStatusConfig)[]) {
-    if (src[key] === "native" || src[key] === "compat") out[key] = src[key];
+    if (src[key] === "native" || src[key] === "compat" || src[key] === "both") out[key] = src[key];
   }
   return out;
 }
@@ -519,16 +519,22 @@ function setTitleStatus(status: TitleStatus): void {
     process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
     return;
   }
-  if (config.titleStatus[status] === "native") {
-    // 原生模式：标题保持干净（含窗口标识），状态由终端原生指示表达
-    setWindowTitle(currentTitle());
+  const mode = config.titleStatus[status];
+  const useNative = mode === "native" || mode === "both";
+  const useCompat = mode === "compat" || mode === "both";
+  // 原生部分：OSC 9;4 指示；不启用时清除避免残留
+  if (useNative) {
     process.stdout.write(STATUS_PROGRESS[status]);
   } else {
-    // 兼容模式：状态由标题图标/动画表达，同时清除原生指示避免重复
+    process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
+  }
+  // 兼容部分：标题图标/动画；不启用时保持干净标题（含窗口标识）
+  if (useCompat) {
     const icon = STATUS_ICONS[status];
     if (icon) setWindowTitle(`${icon} ${currentTitle()}`);
     else startTitleSpinner();
-    process.stdout.write(OSC_TITLE_PROGRESS_CLEAR);
+  } else {
+    setWindowTitle(currentTitle());
   }
 }
 
@@ -584,7 +590,7 @@ export default function (pi: ExtensionAPI) {
         }
         if ((TITLE_STATUS_STATES as readonly string[]).includes(state)) {
           const modePrefix = parts[2] ?? "";
-          return ["native", "compat"].filter((m) => m.startsWith(modePrefix)).map((m) => ({ value: `title ${state} ${m}`, label: m }));
+          return ["native", "compat", "both"].filter((m) => m.startsWith(modePrefix)).map((m) => ({ value: `title ${state} ${m}`, label: m }));
         }
         return null;
       }
@@ -664,15 +670,15 @@ export default function (pi: ExtensionAPI) {
           return;
         }
         if (!(TITLE_STATUS_STATES as readonly string[]).includes(state)) {
-          ctx.ui.notify("Usage: /notify title <running|waiting|done|failed> [native|compat]", "warning");
+          ctx.ui.notify("Usage: /notify title <running|waiting|done|failed> [native|compat|both]", "warning");
           return;
         }
         if (!mode) {
           ctx.ui.notify(`TitleStatus ${state}=${config.titleStatus[state]}`, "info");
           return;
         }
-        if (mode !== "native" && mode !== "compat") {
-          ctx.ui.notify("Mode: native|compat", "warning");
+        if (mode !== "native" && mode !== "compat" && mode !== "both") {
+          ctx.ui.notify("Mode: native|compat|both", "warning");
           return;
         }
         config.titleStatus[state] = mode;

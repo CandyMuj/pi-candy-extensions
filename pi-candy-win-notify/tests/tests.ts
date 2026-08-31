@@ -107,7 +107,7 @@ function normalizeTitleStatus(raw: unknown): Record<string, string> {
   const src = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const out: Record<string, string> = { ...DEFAULT_TITLE_STATUS };
   for (const key of Object.keys(DEFAULT_TITLE_STATUS)) {
-    if (src[key] === "native" || src[key] === "compat") out[key] = src[key];
+    if (src[key] === "native" || src[key] === "compat" || src[key] === "both") out[key] = src[key];
   }
   return out;
 }
@@ -565,6 +565,13 @@ describe("normalizeTitleStatus", () => {
     assert.deepEqual(
       normalizeTitleStatus({ running: "compat", done: "native" }),
       { running: "compat", waiting: "compat", done: "native", failed: "compat" },
+    );
+  });
+
+  it("both enables both modes", () => {
+    assert.deepEqual(
+      normalizeTitleStatus({ running: "both", failed: "both" }),
+      { running: "both", waiting: "compat", done: "compat", failed: "both" },
     );
   });
 
