@@ -438,6 +438,9 @@ const TITLE_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "
 const TITLE_SPINNER_INTERVAL_MS = 100;
 /** 会阻塞等待用户决定的工具名（进入 ⏳ 状态） */
 const WAITING_TOOL_NAMES = new Set(["ask_user_question"]);
+/** 可配置显示方式的状态名 */
+const TITLE_STATUS_STATES = ["running", "waiting", "done", "failed"] as const;
+type TitleStatusKey = (typeof TITLE_STATUS_STATES)[number];
 const OSC_TITLE_PROGRESS_ACTIVE = "\x1b]9;4;3\x07";    // st=3 不确定进度 → 标签页旋转动画
 const OSC_TITLE_PROGRESS_PAUSED = "\x1b]9;4;4\x07";    // st=4 暂停（等待用户）
 const OSC_TITLE_PROGRESS_DONE = "\x1b]9;4;1;100\x07";  // st=1 pr=100 进度完成 → 绿色对勾
@@ -556,7 +559,7 @@ export default function (pi: ExtensionAPI) {
       const wantsNextLevel = prefix.endsWith(" ");
 
       if (parts.length === 0 || (parts.length === 1 && !wantsNextLevel)) {
-        const subs = ["on", "off", "timeout", "opacity", "message", "lang", "status"];
+        const subs = ["on", "off", "timeout", "opacity", "message", "lang", "status", "title"];
         const filtered = subs.filter((s) => s.startsWith(parts[0] ?? ""));
         return filtered.length > 0 ? filtered.map((s) => ({ value: s, label: s })) : null;
       }
@@ -573,6 +576,17 @@ export default function (pi: ExtensionAPI) {
       }
       if (sub === "lang") {
         return ["zh", "en", "ja", "ko"].filter((s) => s.startsWith(val)).map((s) => ({ value: `${sub} ${s}`, label: s }));
+      }
+      if (sub === "title") {
+        const state = parts[1] ?? "";
+        if (!val) {
+          return TITLE_STATUS_STATES.filter((s) => s.startsWith(state)).map((s) => ({ value: `title ${s}`, label: s }));
+        }
+        if ((TITLE_STATUS_STATES as readonly string[]).includes(state)) {
+          const modePrefix = parts[2] ?? "";
+          return ["native", "compat"].filter((m) => m.startsWith(modePrefix)).map((m) => ({ value: `title ${state} ${m}`, label: m }));
+        }
+        return null;
       }
       return null;
     },
@@ -637,6 +651,34 @@ export default function (pi: ExtensionAPI) {
           `${enabled ? t("enabled") : t("disabled")} | Timeout=${config.timeout}s Opacity=${config.opacity} Mode=${config.messageMode} Language=${config.lang} ${daemonStatus}${muteInfo}`,
           psHostReady ? "info" : "warning",
         );
+        return;
+      }
+
+      // /notify title [state] [native|compat]
+      if (sub === "title") {
+        const state = parts[1]?.toLowerCase() as TitleStatusKey | undefined;
+        const mode = parts[2]?.toLowerCase();
+        if (!state) {
+          const cur = TITLE_STATUS_STATES.map((k) => `${k}=${config.titleStatus[k]}`).join(" ");
+          ctx.ui.notify(`TitleStatus: ${cur}`, "info");
+          return;
+        }
+        if (!(TITLE_STATUS_STATES as readonly string[]).includes(state)) {
+          ctx.ui.notify("Usage: /notify title <running|waiting|done|failed> [native|compat]", "warning");
+          return;
+        }
+        if (!mode) {
+          ctx.ui.notify(`TitleStatus ${state}=${config.titleStatus[state]}`, "info");
+          return;
+        }
+        if (mode !== "native" && mode !== "compat") {
+          ctx.ui.notify("Mode: native|compat", "warning");
+          return;
+        }
+        config.titleStatus[state] = mode;
+        saveConfig(config);
+        setTitleStatus(titleStatus); // 立即按新模式重新应用当前状态，无需重启
+        ctx.ui.notify(`TitleStatus ${state}=${mode}`, "info");
         return;
       }
 
