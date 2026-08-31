@@ -463,7 +463,7 @@ function verdictFromLastMessage(msg: { stopReason?: string; errorMessage?: strin
 
 /** 纯函数：组装标题文本 */
 function composeTitle(icon: string, session: string | undefined, cwd: string, marker: string): string {
-  const name = session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
+  const name = session ? `${session} - ${cwd}` : cwd;
   return `${icon ? `${icon} ` : ""}${name} [${marker}]`;
 }
 

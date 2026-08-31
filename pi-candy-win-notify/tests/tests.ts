@@ -85,7 +85,7 @@ function willRetry(msg: { stopReason?: string; errorMessage?: string }): boolean
 }
 
 function composeTitle(icon: string, session: string | undefined, cwd: string, marker: string): string {
-  const name = session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
+  const name = session ? `${session} - ${cwd}` : cwd;
   return `${icon ? `${icon} ` : ""}${name} [${marker}]`;
 }
 
@@ -514,19 +514,19 @@ describe("NotificationStateMachine", () => {
 
 describe("composeTitle", () => {
   it("with session, icon and marker", () => {
-    assert.equal(composeTitle("✓", "my-session", "proj", "pi@abc"), "✓ π - my-session - proj [pi@abc]");
+    assert.equal(composeTitle("✓", "my-session", "proj", "pi@abc"), "✓ my-session - proj [pi@abc]");
   });
 
   it("without session", () => {
-    assert.equal(composeTitle("", undefined, "proj", "pi@abc"), "π - proj [pi@abc]");
+    assert.equal(composeTitle("", undefined, "proj", "pi@abc"), "proj [pi@abc]");
   });
 
   it("no icon means no leading space", () => {
-    assert.equal(composeTitle("", "s", "p", "m"), "π - s - p [m]");
+    assert.equal(composeTitle("", "s", "p", "m"), "s - p [m]");
   });
 
   it("icon keeps marker at end", () => {
-    assert.equal(composeTitle("✕", "s", "p", "m"), "✕ π - s - p [m]");
+    assert.equal(composeTitle("✕", "s", "p", "m"), "✕ s - p [m]");
   });
 });
 
