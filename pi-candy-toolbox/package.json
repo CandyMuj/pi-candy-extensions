@@ -1,0 +1,31 @@
+{
+  "name": "pi-candy-toolbox",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "pi 的小工具聚合箱 — 收纳零散小功能，每个工具独立开关、独立配置",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "toolbox",
+    "utility"
+  ],
+  "author": "CandyMuj",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CandyMuj/pi-candy-extensions.git"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "files": [
+    "extensions",
+    "README.md",
+    "package.json"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
