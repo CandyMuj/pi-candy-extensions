@@ -1,8 +1,8 @@
 {
   "name": "pi-candy-win-notify",
-  "version": "1.0.15",
+  "version": "2.0.0",
   "type": "module",
-  "description": "A Windows notification tool for pi — fast focus, response preview, elapsed time, mute, multi-language",
+  "description": "pi 的 Windows 桌面通知与终端标签页状态显示工具 — 快速聚焦、回复预览、耗时显示、勿扰、多语言、任务四态实时可见",
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -10,11 +10,11 @@
     "notification",
     "windows"
   ],
-  "author": "ryanchan720",
+  "author": "CandyMuj",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ryanchan720/pi-desktop-notify.git"
+    "url": "git+https://github.com/CandyMuj/pi-candy-extensions.git"
   },
   "pi": {
     "extensions": [
@@ -26,7 +26,6 @@
     "extensions/host.ps1",
     "scripts/postinstall.js",
     "README.md",
-    "README.zh.md",
     "package.json"
   ],
   "scripts": {
