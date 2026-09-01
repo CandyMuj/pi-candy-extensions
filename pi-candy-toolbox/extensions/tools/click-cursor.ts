@@ -110,15 +110,20 @@ export function findCurrentEditor(tui: unknown): CustomEditor | undefined {
  * 在布局树中查找编辑器的屏幕矩形。
  * 布局树只展开 layout node（Stack/ScrollView）的 children，普通 Container 是叶子——
  * 编辑器实例不会出现在布局树中。因此先从 tui.children 找到包含编辑器实例的容器
- * （editorContainer），再在布局树中匹配该容器的 rect（= 编辑器显示区域）。
+ * （editorContainer），再在布局树中匹配该容器的 rect。
+ * 布局溢出时（总行数 > 终端高度）TuiAltScreen 截取底部显示，布局 y 需转为屏幕 y。
  */
 export function findEditorRect(tui: unknown, editor: unknown): Rect | undefined {
   const t = tui as {
-    currentLayout?: { root?: unknown };
+    currentLayout?: { root?: { rect?: Rect } & Record<string, unknown>; height?: number };
     children?: Array<{ children?: unknown[] }>;
   };
-  const root = t?.currentLayout?.root;
-  if (!root) return undefined;
+  const layout = t?.currentLayout;
+  if (!layout?.root?.rect) return undefined;
+  // 布局溢出偏移：root 总行数 - 终端高度（>0 时底部对齐截取）
+  const rootHeight = layout.root.rect.height;
+  const frameHeight = layout.height ?? rootHeight;
+  const offsetY = rootHeight > frameHeight ? rootHeight - frameHeight : 0;
   // 定位 editorContainer：children 中包含编辑器实例的容器
   const container = (t.children ?? []).find((c) => Array.isArray(c.children) && c.children.includes(editor));
   const target = container ?? editor; // 兼容直接匹配编辑器实例的情形
@@ -132,7 +137,26 @@ export function findEditorRect(tui: unknown, editor: unknown): Rect | undefined 
     }
     return undefined;
   };
-  return visit(root);
+  const r = visit(layout.root);
+  return r ? { ...r, y: r.y - offsetY } : undefined;
+}
+
+/** 东亚宽字符/emoji 显示宽度（简化版，用于点击列换算） */
+function charWidth(ch: string): number {
+  const code = ch.codePointAt(0) ?? 0;
+  if (
+    (code >= 0x1100 && code <= 0x115f) || // Hangul Jamo
+    (code >= 0x2e80 && code <= 0xa4cf) || // CJK 部首..彝文
+    (code >= 0xac00 && code <= 0xd7a3) || // 谚文音节
+    (code >= 0xf900 && code <= 0xfaff) || // CJK 兼容表意
+    (code >= 0xfe30 && code <= 0xfe4f) || // CJK 兼容形式
+    (code >= 0xff00 && code <= 0xff60) || // 全角形式
+    (code >= 0xffe0 && code <= 0xffe6) || // 全角符号
+    code >= 0x1f000 // emoji
+  ) {
+    return 2;
+  }
+  return 1;
 }
 
 /** 屏幕坐标 → 文本位置并移动光标 */
@@ -143,7 +167,7 @@ export function moveCursorToScreen(editor: CustomEditor, x: number, y: number, r
     paddingX: number;
     buildVisualLineMap(width: number): Array<{ logicalLine: number; startCol: number; length: number }>;
     setCursorCol(col: number): void;
-    state: { cursorLine: number };
+    state: { cursorLine: number; lines?: string[] };
     tui: { requestRender(): void };
   };
   const textTop = rect.y + 1; // 顶边框之下
@@ -153,8 +177,25 @@ export function moveCursorToScreen(editor: CustomEditor, x: number, y: number, r
   const visualLines = e.buildVisualLineMap(e.lastWidth);
   const vl = visualLines[visualRow];
   if (!vl) return; // 越界（含 autocomplete 行，自动忽略）
-  const colX = x - rect.x - e.paddingX;
-  const col = Math.max(vl.startCol, Math.min(colX, vl.startCol + vl.length));
+
+  // 段起点显示宽度（近似：wrap 段除末段外均整宽 layoutWidth）
+  let segIndex = 0;
+  for (let i = 0; i < visualLines.length && visualLines[i] !== vl; i++) {
+    if (visualLines[i].logicalLine === vl.logicalLine) segIndex++;
+  }
+  const localX = Math.max(0, x - rect.x - e.paddingX - segIndex * e.lastWidth);
+
+  // 按显示宽度映射到码元列（CJK 宽字符精确）
+  const lineText = e.state.lines?.[vl.logicalLine]?.slice(vl.startCol, vl.startCol + vl.length) ?? "";
+  let col = vl.startCol;
+  let w = 0;
+  for (let i = 0; i < lineText.length; i++) {
+    const cw = charWidth(lineText[i]);
+    if (w + cw > localX) break;
+    w += cw;
+    col = vl.startCol + i + 1;
+  }
+
   e.state.cursorLine = vl.logicalLine;
   e.setCursorCol(col);
   e.tui.requestRender();
