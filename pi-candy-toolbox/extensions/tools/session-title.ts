@@ -8,7 +8,7 @@
  * 方案逻辑（详见 docs/session-title.md）：
  *   - 四点采样：首条 user（主题）/ 首条 assistant（任务理解）/ 末条 user（当前方向）/
  *     末条 assistant 尾部（当前进展），各截断 sampleChars 字符，成本与会话长度无关
- *   - 双模式：llm（当前模型静默生成，失败自动回退 local）/ local（零 token 本地截断）
+ *   - 双模式：llm（模型静默生成，可配置 model 指定模型，失败自动回退 local）/ local（零 token 本地截断）
  *   - 设置会话名后 notify 显示「旧标题 → 新标题」；与 win-notify 联动：
  *     其标题中的会话名段会自动跟随（session_info_changed），[pi@id] 定位标识不受影响
  */

@@ -70,7 +70,7 @@
 | 首条 user | 头部 | 任务陈述（主题） |
 | 首条 assistant | 头部 | 任务理解 |
 | 末条 user | 头部 | 当前方向 |
-| 末条 assistant | **尾部** | 当前进展（assistant 结论通常在尾部） |
+| 末条 assistant | 尾部 | 当前进展（assistant 结论通常在尾部） |
 
 - 输入恒定 ≈ 300~500 tokens；只有单条消息时自动省略重复段落
 - 输出预算：`maxTokens ≈ 20`、`temperature ≈ 0.3`，system prompt 要求 ≤ `maxLength` 字一行输出
@@ -80,7 +80,7 @@
 ```
 /candy-title
    └─ mode: llm？
-        ├─ 是 → 静默调用当前模型（provider.stream，不产生会话消息）
+        ├─ 是 → 静默调用模型（modelRegistry.complete，不产生会话消息）
         │        └─ 失败/无模型/超时(30s) → 回退 local
         └─ 否 → local：首条可用消息清洗截断（去 @引用/控制字符、折叠空白）
 ```
