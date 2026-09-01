@@ -4,7 +4,7 @@
 
 ## 功能
 
-**仅 fullscreen 模式**生效：鼠标点击输入框（编辑器区域）内任意位置，光标移动到点击处——类似 Claude Code 的点击编辑体验。自动处理多行换行、滚动偏移、行尾边界。
+**仅 fullscreen 模式**生效：鼠标点击输入框（编辑器区域）内任意位置，光标移动到点击处——类似 Claude Code 的点击编辑体验。自动处理多行换行、滚动偏移、行尾边界，并按**显示宽度**精确定位（中文/emoji 等宽字符点击到字符间隙）。
 
 ## 配置
 
@@ -41,12 +41,18 @@
      监听器未前置而永远收不到鼠标事件）
 ③ tui.currentLayout + tui.children
      每次渲染后布局树含每个 layout node 的 rect；编辑器实例从 tui.children 的
-     editorContainer 中动态定位（默认编辑器实例，非替换产物）
+     editorContainer 中动态定位（pi 默认编辑器实例，非替换产物）
+④ reload 后从 session 重建编辑器历史
+     pi 在 /reload 时不会重新 populateHistory（内存历史可能丢失/错乱），
+     从 sessionManager 的用户消息重建 history（幂等，其他启动路径不干预）
 
 屏幕坐标 → 文本位置：
-  点击 y - rect.y - 1（顶边框）→ 文本行
-  + scrollOffset → buildVisualLineMap(lastWidth)（word-aware 换行）→ 逻辑行
-  点击 x - rect.x - paddingX → 列（clamp 到该布局行 [startCol, startCol+length]）
+  布局溢出校正：布局总行数 > 终端高度时 TuiAltScreen 截取底部显示，
+    rect 的 y 先换算为屏幕坐标（offsetY = 总行数 - 终端高度）
+  点击 y（屏幕） - rect.y - 1（顶边框）→ 文本行
+    + scrollOffset → buildVisualLineMap(lastWidth)（word-aware 换行）→ 逻辑行
+  点击 x - rect.x - paddingX → 段起点（wrap 行按 segIndex × lastWidth 近似）
+    → 按显示宽度逐字符映射（东亚宽字符/emoji 宽 2）→ 精确码元列
   state.cursorLine = 逻辑行; setCursorCol(col); tui.requestRender()
 ```
 
@@ -58,19 +64,20 @@
 |---|---|
 | `inputListeners` 运行时字段 + Set 顺序 | 点击定位不生效（不破坏其他功能），代码含防御检查 |
 | `tui.currentLayout` / `tui.children`（TS private） | 同上，静默降级 |
-| `buildVisualLineMap` / `setCursorCol` / `state.cursorLine`（TS private） | 同上 |
+| `buildVisualLineMap` / `setCursorCol` / `state.cursorLine` / `state.lines`（TS private） | 同上 |
 
 pi 升级导致任一失效时，工具自动退化为无点击定位，编辑器行为完全正常。
 
 ## 不变量（不影响既有功能）
 
-- **编辑器始终是 pi 默认实例**：history（↑↓ 历史切换）、borderColor（bash/thinking 状态色）、autocomplete、undo 全部保留
+- **编辑器始终是 pi 默认实例**：borderColor（bash/thinking 状态色）、autocomplete、undo 全部保留；history（↑↓ 切换）日常保留，reload 后由工具从 session 消息重建（内容等价，幂等）
 - 键盘输入路径完全不变（焦点、keybindings 均未改动）
 - 仅拦截「编辑器矩形内的左键按下」，其余鼠标事件原样交给 viewport
 
 ## 实现要点
 
-- 单文件 `extensions/tools/click-cursor.ts`，运行时依赖仅官方导出的 `CustomEditor`
+- 单文件 `extensions/tools/click-cursor.ts`，`CustomEditor` 仅作类型引用（type-only import，运行时零额外依赖）
 - 配置项仅 `debug`（默认关，日志开关）
 - 安装生命周期：`session_start` 安装一次（`installed` 守卫）并重启轮询；`session_shutdown` 清理定时器，下次 session_start 自动恢复
 - 鼠标事件统一由 `onTerminalInput` 监听器入口处理（viewport 对鼠标序列总是 consume，编辑器 handleInput 收不到鼠标，无需子类覆盖）
+- reload 时（`session_start` reason 为 `reload`）从 session 消息重建编辑器 history，保证 ↑↓ 历史切换在 reload 后仍可用
