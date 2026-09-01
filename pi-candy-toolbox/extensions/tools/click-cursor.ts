@@ -147,18 +147,23 @@ export function findEditorRect(tui: unknown, editor: unknown): Rect | undefined 
   return r ? { ...r, y: r.y - offsetY } : undefined;
 }
 
-/** 东亚宽字符/emoji 显示宽度（简化版，用于点击列换算） */
-function charWidth(ch: string): number {
-  const code = ch.codePointAt(0) ?? 0;
+/**
+ * 码点显示宽度（与 pi 的 get-east-asian-width 判定对齐：isWide || isFullWidth 为 2，
+ * ambiguous 如中文引号/破折号按 1——与 pi 内部 wrap/选区逻辑一致）。
+ * 范围为主干近似（覆盖 CJK/全角/emoji 大区，个别空隙码点有微小偏差）。
+ */
+function charWidthCp(cp: number): number {
+  if (cp >= 0x1f000) return 2; // emoji 大区（pi 用 emoji-regex，此处近似）
+  if (cp === 0x3000) return 2; // 全角空格（fullwidth）
+  if ((cp >= 0xff01 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6)) return 2; // 全角形式
   if (
-    (code >= 0x1100 && code <= 0x115f) || // Hangul Jamo
-    (code >= 0x2e80 && code <= 0xa4cf) || // CJK 部首..彝文
-    (code >= 0xac00 && code <= 0xd7a3) || // 谚文音节
-    (code >= 0xf900 && code <= 0xfaff) || // CJK 兼容表意
-    (code >= 0xfe30 && code <= 0xfe4f) || // CJK 兼容形式
-    (code >= 0xff00 && code <= 0xff60) || // 全角形式
-    (code >= 0xffe0 && code <= 0xffe6) || // 全角符号
-    code >= 0x1f000 // emoji
+    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
+    (cp >= 0x2e80 && cp <= 0xa4cf) || // CJK 部首/标点/假名/谚文/统一表意等主干
+    (cp >= 0xa960 && cp <= 0xa97f) || // 谚文扩展
+    (cp >= 0xac00 && cp <= 0xd7a3) || // 谚文音节
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK 兼容表意
+    (cp >= 0xfe30 && cp <= 0xfe6b) || // CJK 兼容形式
+    (cp >= 0x20000 && cp <= 0x3fffd) // CJK 扩展 B+
   ) {
     return 2;
   }
@@ -195,22 +200,29 @@ export function moveCursorToScreen(
   for (let i = 0; i < visualLines.length && visualLines[i] !== vl; i++) {
     if (visualLines[i].logicalLine === vl.logicalLine) segIndex++;
   }
-  const localX = Math.max(0, x - rect.x - e.paddingX - segIndex * e.lastWidth);
+  // 内容起点偏移校正：编辑器渲染宽度（lastWidth 反推）可能小于容器宽度（布局分配
+  // 差异），内容近似居中偏移。实测样本（"字符字符 123123"）吻合该校正；
+  // 渲染宽度不小于容器时 offsetX 自动为 0（左对齐/全宽场景不受影响）。
+  const contentWidth = e.lastWidth + (e.paddingX ? e.paddingX * 2 : 1);
+  const offsetX = rect.width > contentWidth ? Math.floor((rect.width - contentWidth) / 2) : 0;
+  const localX = Math.max(0, x - rect.x - e.paddingX - offsetX - segIndex * e.lastWidth);
 
-  // 按显示宽度映射到码元列（CJK 宽字符精确）
+  // 按显示宽度映射到码元列（与 pi 宽度判定对齐；surrogate pair 按码点推进）
   const lineText = e.state.lines?.[vl.logicalLine]?.slice(vl.startCol, vl.startCol + vl.length) ?? "";
-  let col = vl.startCol;
+  let i = 0;
   let w = 0;
-  for (let i = 0; i < lineText.length; i++) {
-    const cw = charWidth(lineText[i]);
+  while (i < lineText.length) {
+    const cp = lineText.codePointAt(i) ?? 0;
+    const cw = charWidthCp(cp);
     if (w + cw > localX) break;
     w += cw;
-    col = vl.startCol + i + 1;
+    i += cp > 0xffff ? 2 : 1;
   }
+  const col = vl.startCol + i;
 
   log?.(
     `光标定位: x=${x} rect=${JSON.stringify(rect)} paddingX=${e.paddingX} lastWidth=${e.lastWidth} ` +
-      `scrollOffset=${e.scrollOffset} visualRow=${visualRow} segIndex=${segIndex} localX=${localX} ` +
+      `scrollOffset=${e.scrollOffset} visualRow=${visualRow} segIndex=${segIndex} offsetX=${offsetX} localX=${localX} ` +
       `line=${vl.logicalLine} col=${col} lineText=${JSON.stringify(lineText.slice(0, 40))}`,
   );
 
