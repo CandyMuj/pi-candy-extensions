@@ -13,11 +13,17 @@
  * （滚轮、选区拖拽、链接、右键粘贴、编辑器外点击）原样交给 viewport。
  * 已知限制：编辑器区域内的拖拽选区不再工作（按下被拦截为光标定位）。
  */
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, CustomEditor } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "../core/config";
 
 /** SGR 鼠标序列（与 pi 的 parseSgrMouseEvent 同款正则） */
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
+
+/** debug 日志文件路径（终端日志会遮挡 UI） */
+const LOG_PATH = join(getAgentDir(), "candy-toolbox-click-cursor.log");
 
 interface Rect {
   x: number;
@@ -160,7 +166,13 @@ function charWidth(ch: string): number {
 }
 
 /** 屏幕坐标 → 文本位置并移动光标 */
-export function moveCursorToScreen(editor: CustomEditor, x: number, y: number, rect: Rect): void {
+export function moveCursorToScreen(
+  editor: CustomEditor,
+  x: number,
+  y: number,
+  rect: Rect,
+  log?: (...args: unknown[]) => void,
+): void {
   const e = editor as unknown as {
     scrollOffset: number;
     lastWidth: number;
@@ -196,6 +208,12 @@ export function moveCursorToScreen(editor: CustomEditor, x: number, y: number, r
     col = vl.startCol + i + 1;
   }
 
+  log?.(
+    `光标定位: x=${x} rect=${JSON.stringify(rect)} paddingX=${e.paddingX} lastWidth=${e.lastWidth} ` +
+      `scrollOffset=${e.scrollOffset} visualRow=${visualRow} segIndex=${segIndex} localX=${localX} ` +
+      `line=${vl.logicalLine} col=${col} lineText=${JSON.stringify(lineText.slice(0, 40))}`,
+  );
+
   e.state.cursorLine = vl.logicalLine;
   e.setCursorCol(col);
   e.tui.requestRender();
@@ -222,7 +240,7 @@ export function handleMouseData(data: string, editor: CustomEditor | undefined, 
     log?.(`点击在编辑器外 rect=${JSON.stringify(rect)}`);
     return undefined; // 编辑器外：交给 viewport（选区/滚动/链接等）
   }
-  moveCursorToScreen(editor, x, y, rect);
+  moveCursorToScreen(editor, x, y, rect, log);
   log?.(`光标已移动 rect=${JSON.stringify(rect)}`);
   return { consume: true };
 }
@@ -237,8 +255,14 @@ const tool: ToolDefinition = {
     let installed = false;
     let ensureTimer: ReturnType<typeof setInterval> | undefined;
 
+    // 调试日志写入文件（终端日志会遮挡 UI 且不便复制）
     const log = (...args: unknown[]): void => {
-      if (config.debug) console.log("[candy-toolbox] click-cursor:", ...args);
+      if (!config.debug) return;
+      try {
+        appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${args.join(" ")}\n`, "utf-8");
+      } catch {
+        // 日志写入失败忽略
+      }
     };
 
     const handler = (data: string): MouseResult => {
