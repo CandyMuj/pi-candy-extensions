@@ -11,11 +11,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadRawConfig, resolveTool } from "./core/config";
 import type { ToolDefinition } from "./core/config";
+import clickCursor from "./tools/click-cursor";
 import hello from "./tools/hello";
 import sessionTitle from "./tools/session-title";
 
 /** 工具清单：新增工具在此登记（目录工具 import 后加一行，例如：myTool,） */
 const TOOLS: ToolDefinition<object>[] = [
+  clickCursor,
   hello,
   sessionTitle,
   // import 后在此加一行，例如：myTool,（目录工具写 import myTool from "./tools/my-tool"，
