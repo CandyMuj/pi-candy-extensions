@@ -243,7 +243,6 @@ function clearSelection(tui: unknown, log?: (...args: unknown[]) => void): void 
     "selectionFocus",
     "selectionPressActive",
     "selectionDragged",
-    "lastClick",
     "pressedUrl",
     "selectionInitialRange",
     "selectionGranularity",
@@ -312,6 +311,20 @@ export function handleMouseData(data: string, editor: CustomEditor | undefined, 
       if (!rect) {
         log?.("未找到编辑器 rect（currentLayout 不可用？）");
         return { consume: true };
+      }
+      // 非零宽选区 = 双击/三击选词产物（viewport 在 press 时已建立词/行选区）
+      // → 不干预：保留选区高亮与自动复制，光标不移动
+      const t = tui as {
+        selectionAnchor?: { row?: number; col?: number };
+        selectionFocus?: { row?: number; col?: number };
+      };
+      if (
+        t.selectionAnchor &&
+        t.selectionFocus &&
+        (t.selectionAnchor.row !== t.selectionFocus.row || t.selectionAnchor.col !== t.selectionFocus.col)
+      ) {
+        log?.("双击/三击选词：不干预，放行");
+        return undefined;
       }
       log?.(`点击判定 x=${x} y=${y}（未移动）`);
       moveCursorToScreen(editor, x, y, rect, log);
