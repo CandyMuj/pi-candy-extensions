@@ -73,7 +73,7 @@
 | 末条 assistant | 尾部 | 当前进展（assistant 结论通常在尾部） |
 
 - 输入恒定 ≈ 300~500 tokens；只有单条消息时自动省略重复段落
-- 输出预算：`maxTokens ≈ 20`、`temperature ≈ 0.3`，system prompt 要求 ≤ `maxLength` 字一行输出
+- 输出预算：`maxTokens = maxLength × 2 + 20`（与配置联动：中文 1 字 ≤2 token 的保守估计 + 缓冲，不截断标题同时保留成本上限）、`temperature ≈ 0.3`，system prompt 要求 ≤ `maxLength` 字一行输出
 
 ### 双模式与回退链
 

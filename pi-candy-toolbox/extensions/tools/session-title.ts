@@ -206,7 +206,7 @@ async function generateTitleLlm(
             messages: [{ role: "user", content: [{ type: "text", text: prompt.user }] }],
           },
           {
-            maxTokens: 20,
+            maxTokens: config.maxLength * 2 + 20, // 与 maxLength 联动：中文 1 字 ≤2 token 的保守估计 + 缓冲
             temperature: 0.3,
             signal: ctx.signal,
           },
