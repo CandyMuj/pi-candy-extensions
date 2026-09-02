@@ -45,7 +45,7 @@
     "mode": "llm",
     "maxLength": 20,
     "sampleChars": 200,
-    "autoFirst": false,
+    "autoFirst": true,
     "model": "openrouter/deepseek-chat"
   }
 }
@@ -56,7 +56,7 @@
 | `mode` | `"llm"` | 生成模式：`llm` 用模型生成（失败自动回退 `local`）；`local` 零 token 本地截断 |
 | `maxLength` | `20` | 标题字符上限（中文字符） |
 | `sampleChars` | `200` | 每段消息采样字符数 |
-| `autoFirst` | `false` | 首次对话结束自动生成（仅当会话尚无标题时触发） |
+| `autoFirst` | `true` | 首次对话结束自动生成（仅当会话尚无标题时触发） |
 | `model` | 当前会话模型 | 指定生成标题用的模型（`provider/modelId` 格式，如 `openrouter/deepseek-chat`）。可配置一个小而便宜的模型专用于标题这类小任务，更快更省；配置的模型不可用时自动回退当前会话模型，再失败回退 `local` |
 
 ## 方案逻辑

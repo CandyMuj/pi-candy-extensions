@@ -267,7 +267,7 @@ export async function generateTitle(
 const tool: ToolDefinition<SessionTitleConfig> = {
   id: "session-title",
   description: "生成/重新生成会话标题：/candy-title [提示词]",
-  defaultConfig: { mode: "llm", maxLength: 20, sampleChars: 200, autoFirst: false, model: undefined },
+  defaultConfig: { mode: "llm", maxLength: 20, sampleChars: 200, autoFirst: true, model: undefined },
   register(pi: ExtensionAPI, config: SessionTitleConfig): void {
     /** 配置分支：/candy-title config [key value]，raw 为 config 后的参数 */
     const handleConfig = async (raw: string, ctx: ConfigCmdCtx): Promise<void> => {
