@@ -231,7 +231,42 @@ export function moveCursorToScreen(
   e.tui.requestRender();
 }
 
-/** 鼠标数据处理：仅拦截编辑器区域内的左键按下 */
+// ── 点击/拖拽判定状态 ────────────────────────────────────────────
+/** 编辑器内左键按下待判定（未移动的释放 = 点击；移动 = 拖拽选择） */
+let pendingPress: { x: number; y: number } | undefined;
+
+/** 清除 viewport 的选区状态（点击定位后防止残留锚点/双击误判/剪贴板覆盖） */
+function clearSelection(tui: unknown, log?: (...args: unknown[]) => void): void {
+  const t = tui as Record<string, unknown> & { stopSelectionAutoScroll?: () => void; requestRender?: () => void };
+  for (const key of [
+    "selectionAnchor",
+    "selectionFocus",
+    "selectionPressActive",
+    "selectionDragged",
+    "lastClick",
+    "pressedUrl",
+    "selectionInitialRange",
+    "selectionGranularity",
+  ]) {
+    if (key in t) t[key] = undefined;
+  }
+  try {
+    t.stopSelectionAutoScroll?.();
+    t.requestRender?.();
+  } catch {
+    // 清除失败不影响光标定位
+  }
+  log?.("已清除选区状态（点击定位）");
+}
+
+/**
+ * 鼠标数据处理：点击定位与拖拽选择共存。
+ * - 编辑器内左键按下：放行（viewport 建立选区锚点），记录待判定状态
+ * - 左键移动（拖拽）：取消点击判定，全程放行 → 拖拽选择正常
+ * - 未移动的释放：判定为点击 → 消费释放（viewport 不复制剪贴板/不残留状态），
+ *   移动光标并清除选区状态
+ * - 其余（右键/滚轮/编辑器外）一律放行
+ */
 export function handleMouseData(data: string, editor: CustomEditor | undefined, tui: unknown, log?: (...args: unknown[]) => void): MouseResult {
   const m = SGR_MOUSE_RE.exec(data);
   if (!m) return undefined; // 非鼠标序列
@@ -239,22 +274,53 @@ export function handleMouseData(data: string, editor: CustomEditor | undefined, 
   const x = Number(m[2]) - 1; // 1-based → 0-based
   const y = Number(m[3]) - 1;
   const isPress = m[4] === "M";
-  if (button !== 0 || !isPress) return undefined; // 仅左键按下（滚轮/右键/释放交给 viewport）
+  const isRelease = m[4] === "m";
+  const isLeftPress = button === 0 && isPress;
+  const isLeftRelease = button === 0 && isRelease;
+  const isLeftDrag = (button & 32) !== 0; // 左键按住移动
   if (!editor || !tui) return undefined;
   if ((tui as { mode?: string }).mode !== "fullscreen") return undefined; // 仅全屏模式
-  log?.(`鼠标点击 button=${button} x=${x} y=${y}`);
-  const rect = findEditorRect(tui, editor);
-  if (!rect) {
-    log?.("未找到编辑器 rect（currentLayout 不可用？）");
+
+  const inRect = (r: { x: number; y: number; width: number; height: number }): boolean =>
+    x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
+
+  // 编辑器内左键按下：放行，记录待判定
+  if (isLeftPress) {
+    const rect = findEditorRect(tui, editor);
+    if (rect && inRect(rect)) {
+      pendingPress = { x, y };
+      log?.(`按下（放行，待点击/拖拽判定）x=${x} y=${y}`);
+    } else {
+      pendingPress = undefined;
+    }
     return undefined;
   }
-  if (x < rect.x || x >= rect.x + rect.width || y < rect.y || y >= rect.y + rect.height) {
-    log?.(`点击在编辑器外 rect=${JSON.stringify(rect)}`);
-    return undefined; // 编辑器外：交给 viewport（选区/滚动/链接等）
+
+  // 左键拖动：取消点击判定，拖拽选择交给 viewport
+  if (isLeftDrag) {
+    pendingPress = undefined;
+    return undefined;
   }
-  moveCursorToScreen(editor, x, y, rect, log);
-  log?.(`光标已移动 rect=${JSON.stringify(rect)}`);
-  return { consume: true };
+
+  // 未移动的释放 = 点击：消费释放（viewport 不复制剪贴板），移动光标 + 清除选区
+  if (isLeftRelease && pendingPress) {
+    const pp = pendingPress;
+    pendingPress = undefined;
+    const moved = Math.abs(x - pp.x) > 1 || Math.abs(y - pp.y) > 1;
+    if (!moved) {
+      const rect = findEditorRect(tui, editor);
+      if (!rect) {
+        log?.("未找到编辑器 rect（currentLayout 不可用？）");
+        return { consume: true };
+      }
+      log?.(`点击判定 x=${x} y=${y}（未移动）`);
+      moveCursorToScreen(editor, x, y, rect, log);
+      clearSelection(tui, log);
+      return { consume: true };
+    }
+    log?.(`释放已移动（拖拽结束，放行）`);
+  }
+  return undefined;
 }
 
 const tool: ToolDefinition = {
