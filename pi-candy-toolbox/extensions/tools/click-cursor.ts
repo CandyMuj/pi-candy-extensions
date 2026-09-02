@@ -291,6 +291,7 @@ export function handleMouseData(data: string, editor: CustomEditor | undefined, 
       log?.(`按下（放行，待点击/拖拽判定）x=${x} y=${y}`);
     } else {
       pendingPress = undefined;
+      log?.(rect ? `按下在编辑器外（放行，viewport 原生处理）x=${x} y=${y} rect=${JSON.stringify(rect)}` : "未找到编辑器 rect（currentLayout 不可用？）");
     }
     return undefined;
   }
