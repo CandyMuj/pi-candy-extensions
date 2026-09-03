@@ -79,12 +79,12 @@ type TitleStatusMode = "native" | "compat" | "both";
 type TitleStatusConfig = Record<Exclude<TitleStatus, "idle">, TitleStatusMode>;
 type Config = { timeout: number; opacity: number; messageMode: "fixed" | "response"; lang: "zh" | "en" | "ja" | "ko"; muteUntil?: number; titleStatus: TitleStatusConfig };
 
-/** 各状态默认显示方式：native=终端原生指示（OSC 9;4），compat=标题 emoji/动画 */
+/** 各状态默认显示方式：native=终端原生指示（OSC 9;4），compat=标题 emoji/动画，both=同时启用 */
 const DEFAULT_TITLE_STATUS: TitleStatusConfig = {
   running: "native",
-  waiting: "compat",
-  done: "compat",
-  failed: "compat",
+  waiting: "both",
+  done: "both",
+  failed: "both",
 };
 
 /** 纯函数：校验并归一化 titleStatus 配置，非法值回退默认 */

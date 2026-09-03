@@ -98,9 +98,9 @@ function verdictFromLastMessage(msg: { stopReason?: string; errorMessage?: strin
 
 const DEFAULT_TITLE_STATUS = {
   running: "native",
-  waiting: "compat",
-  done: "compat",
-  failed: "compat",
+  waiting: "both",
+  done: "both",
+  failed: "both",
 } as const;
 
 function normalizeTitleStatus(raw: unknown): Record<string, string> {
@@ -558,32 +558,32 @@ describe("verdictFromLastMessage", () => {
 
 describe("normalizeTitleStatus", () => {
   it("missing config → defaults", () => {
-    assert.deepEqual(normalizeTitleStatus(undefined), { running: "native", waiting: "compat", done: "compat", failed: "compat" });
+    assert.deepEqual(normalizeTitleStatus(undefined), { running: "native", waiting: "both", done: "both", failed: "both" });
   });
 
   it("partial override keeps other defaults", () => {
     assert.deepEqual(
       normalizeTitleStatus({ running: "compat", done: "native" }),
-      { running: "compat", waiting: "compat", done: "native", failed: "compat" },
+      { running: "compat", waiting: "both", done: "native", failed: "both" },
     );
   });
 
   it("both enables both modes", () => {
     assert.deepEqual(
       normalizeTitleStatus({ running: "both", failed: "both" }),
-      { running: "both", waiting: "compat", done: "compat", failed: "both" },
+      { running: "both", waiting: "both", done: "both", failed: "both" },
     );
   });
 
   it("invalid values fall back to defaults", () => {
     assert.deepEqual(
       normalizeTitleStatus({ running: "bothe", waiting: "native" }),
-      { running: "native", waiting: "native", done: "compat", failed: "compat" },
+      { running: "native", waiting: "native", done: "both", failed: "both" },
     );
   });
 
   it("non-object input → defaults", () => {
-    assert.deepEqual(normalizeTitleStatus("oops"), { running: "native", waiting: "compat", done: "compat", failed: "compat" });
+    assert.deepEqual(normalizeTitleStatus("oops"), { running: "native", waiting: "both", done: "both", failed: "both" });
   });
 });
 

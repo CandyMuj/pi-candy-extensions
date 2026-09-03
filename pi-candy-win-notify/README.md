@@ -61,7 +61,7 @@ pi 在终端标签页展示四种任务状态，多窗口并行时无需逐个�
 | 完成 | 任务结束且无错误 | 进度 100% 绿勾（st=1;100） | 标题 `✅` |
 | 失败 | 任务被中断或不可重试错误 | 错误红叉（st=2） | 标题 `❌` |
 
-- **两种显示方式可分别配置**：`native` 使用终端原生的 OSC 9;4 进度指示（Windows Terminal、WezTerm、Ghostty、iTerm2 等支持）；`compat` 使用标题 emoji/动画（任何终端都能显示）。每个状态可独立选择 `native` / `compat` / `both`（两者同时显示），默认 `running=native`、其余 `compat`
+- **两种显示方式可分别配置**：`native` 使用终端原生的 OSC 9;4 进度指示（Windows Terminal、WezTerm、Ghostty、iTerm2 等支持）；`compat` 使用标题 emoji/动画（任何终端都能显示）。每个状态可独立选择 `native` / `compat` / `both`（两者同时显示），默认 `running=native`、其余 `both`
 - **失败判定**：用户强制中断（Esc）或不可重试的 API/工具错误（如鉴权失败）计为失败；可重试错误（超时、限流等）不算
 - **标题格式**：`状态图标 会话名 - 目录名 [pi@进程标识]`，末尾的 `[pi@pid]` 是窗口唯一标识，供通知弹窗"继续"按钮在多窗口下精确切回
 - **兼容任何终端**：即使终端不支持 OSC 9;4，标题 emoji 也能完整表达四态
@@ -88,9 +88,9 @@ pi 在终端标签页展示四种任务状态，多窗口并行时无需逐个�
   "muteUntil": null,
   "titleStatus": {
     "running": "native",
-    "waiting": "compat",
-    "done": "compat",
-    "failed": "compat"
+    "waiting": "both",
+    "done": "both",
+    "failed": "both"
   }
 }
 ```
