@@ -24,7 +24,7 @@
 
 ---
 
-## 2. 方案选型：为什么不用 pi-workspace-history 的 git 快照方案
+## 2. 方案选型：对比 git 快照方案（pi-workspace-history 路线）
 
 | 维度 | pi-workspace-history（shadow git） | CC 文件级快照（本方案） |
 |---|---|---|
@@ -39,11 +39,11 @@
 
 ### 2.1 为什么独立实现 /undo，而不是改造内置 /tree
 
-> 本结论与 pi-workspace-history 是否占用钩子**无关**（回退插件通常只装一个）。理由：
+> 结论：独立实现。该结论与 pi-workspace-history 是否占用钩子无关（回退插件通常只装一个），理由如下：
 
 1. **内置 /tree 的 UI 无法定制**：pi 没有任何 API 修改树选择器（↑↓ 折叠/过滤、全树展示）或内置的 "Summarize branch?" 三选一弹窗。扩展唯一入口是 `session_before_tree`（只能取消/提供摘要）——只能"在导航前插入自己的弹窗"，不能修改 /tree 的菜单项。CC 式选择器（用户消息平铺列表 + 每条 diff 统计 + 6 项操作菜单）在 /tree 上不可能实现，必须自建选择器——而这正是独立命令的核心。
-2. **/undo 无法干净地别名到 /tree**：pi 没有公开 API 让扩展打开内置树选择器（`navigateTree` 是纯编程接口，不弹 UI）。要么自建选择器（=独立方案），要么退化为"不选择、直接回退上一回合"（丢失 CC 选择器体验）。
-3. **恢复的显式性（CC 核心语义）**：CC 中只有 /rewind 会动文件，对话树导航绝无文件副作用。hook `session_before_tree` 给所有树导航附加文件恢复，会让普通分支切换也被打扰（pi-workspace-history 即如此），不符合"以 CC 设计为主"。
+2. **/undo 无法干净地别名到 /tree**：pi 没有公开 API 让扩展打开内置树选择器（`navigateTree` 是纯编程接口，不弹 UI）。要么自建选择器（=独立方案），要么退化为"不选择、直接回退上一回合"（pi-workspace-history 的 /undo 正是这种退化形态：无选择器、自动定位上一回合），丢失 CC 选择器体验。
+3. **恢复的显式性（CC 核心语义）**：CC 中只有 /rewind 会动文件，对话树导航绝无文件副作用。hook `session_before_tree` 给所有树导航附加文件恢复，会让普通分支切换也被打扰（pi-workspace-history 即如此：每次 /tree 都要先选"是否恢复工作区"），不符合"以 CC 设计为主"。
 4. **控制流简单 = 可靠**：独立命令全程在 handler 内串行（选择 → dry-run → 菜单 → 恢复 → 导航 → redo 入栈），不依赖跨扩展事件协作、不受其他扩展 handler 返回值影响。
 
 代价（已评估）：文件恢复与对话导航是两个连续步骤、非原子整体——恢复成功后若 `navigateTree` 被取消（如用户中止摘要），会出现"文件已回退、对话未回退"。缓解：恢复前必建 redo-point 快照（可 /redo 或重试），且正常路径下无第三方扩展取消导航。
@@ -97,7 +97,7 @@ interface RedoItem {
   写入前做 fk2 等价比较（exists/mode/size/mtime/内容），已一致则跳过（幂等）
 ```
 
-**为什么不用 CC 的"回合结束快照"而用"回合开始快照"**：CC 在 turn 结束后建快照，导致快照语义是"消息 N+1 之前"，选择消息 N 时实际恢复的是 N 回合后状态（有 off-by-one，且首回合编辑存在无法捕获的窗口）。本方案在**操作开始前**（`before_agent_start`）建快照，语义干净：**选择消息 M = 恢复到消息 M 的回合开始之前**。首回合也有 baseline 兜底。
+**快照时机：回合开始前**（CC 在回合结束后建快照，存在两个问题：快照语义是"消息 N+1 之前"，选择消息 N 时实际恢复的是 N 回合后状态，有 off-by-one；且首回合编辑无快照可依附、无法捕获）。本方案在**操作开始前**（`before_agent_start`）建快照，语义干净：**选择消息 M = 恢复到消息 M 的回合开始之前**。首回合有 baseline 兜底。
 
 **undo 的粒度是"目标时刻"，不是"单个回合"（重要推论）**：选中消息 M = 其后**所有**回合对被跟踪文件的改动一次性全部撤销。例如回合 1 改了 F、回合 2 又改 F 并新建 H，选择消息 1 → F 恢复到回合 1 之前（两回合改动一起消失）、H 被删除。不存在"只抽走中间某个回合的改动"的能力（CC 同样没有，快照式回退的固有语义）；想只撤销最近回合 → 选最近的消息；想逐回合回退 → 依次选越来越早的消息。对话侧同步：navigateTree 同样一次性回退到该消息之前。选择器 dry-run 会展示聚合后的改动总量，确认前可见范围。
 
@@ -115,7 +115,7 @@ interface RedoItem {
 ```
 
 - 与 CC 同构（CC：`~/.claude/file-history/<sessionId>/<hash>@vN`），但元数据用 **sidecar state.json** 而非写进会话 JSONL。
-- **为什么不用 `pi.appendEntry()` 写会话文件**（用户问题）：pi 支持该能力（custom entry，不进 LLM 上下文），但：(a) 每次编辑追加一条会让会话文件膨胀、拖慢每次加载的条目重放；(b) JSONL 无"更新"语义，只能同 messageId 后者覆盖（CC 的做法），重放逻辑复杂；(c) fork/克隆迁移时 sidecar + 备份目录一次性拷贝更可控。**决策：全部插件状态进 sidecar。**
+- **为什么不用 `pi.appendEntry()` 写会话文件**：pi 支持该能力（custom entry，不进 LLM 上下文），但：(a) 每次编辑追加一条会让会话文件膨胀、拖慢每次加载的条目重放；(b) JSONL 无"更新"语义，只能同 messageId 后者覆盖（CC 的做法），重放逻辑复杂；(c) fork/克隆迁移时 sidecar + 备份目录一次性拷贝更可控。**决策：全部插件状态进 sidecar。**
 - 备份文件名基于**绝对路径哈希** → 同一文件跨会话/跨 fork 基名不变，硬链接迁移安全（CC `Jo4` 同款）。
 
 ### 会话迁移（fork / clone / resume）
@@ -136,7 +136,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 
 | pi 事件 | 动作 | 对应 CC |
 |---|---|---|
-| `session_start` | 加载/迁移 state.json；触发过期清理（防抖） | 状态重放 |
+| `session_start` | 加载/迁移 state.json；建 baseline 快照；触发过期清理（防抖） | 状态重放 |
 | `tool_call`（`edit`/`write`，**执行前**） | ① 解析路径：`path.resolve(ctx.cwd, input.path)`，剥前导 `@`，已存在则 `realpath`；② 命中排除规则 → 不跟踪；③ 文件未跟踪 → 备份当前内容为 originals[F]（不存在则 null，版本 1），加入 trackedFiles | `Pv` (trackEdit) |
 | `input` | 记录 `pendingPromptText`（slash 命令 / `source==="extension"` / `streamingBehavior` 非空 → 不启动新操作） | — |
 | `before_agent_start` | 无 pending 操作且非 slash → **建操作快照**：遍历 trackedFiles 备份当前内容（未变则复用旧备份记录，CC `jy1` 同款），kind="operation"，先以 opId 占位；记录 `pendingOperationStartLeafId` | `jy1` 前移 |
@@ -198,16 +198,15 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 
 ### 冲突规避规则
 
-- **新操作开始（真实用户 prompt）→ 清空 redo 栈**（同 pi-workspace-history `clearRedoStack`）。
+- **新操作开始（真实用户 prompt）→ 清空 redo 栈**。
 - undo 目标快照**永不被删**（快照 cap 只淘汰最旧的，见 §8）→ undo→redo→再 undo 可自由往返。
 - redo 是绝对恢复 + 幂等 → 重复执行安全；多个会话（fork 后）交叉回退互不干扰，**哪个会话先回退谁生效，后回退者因内容已一致而跳过（幂等无操作）**，与 CC 实测行为一致。
-- 与 pi-workspace-history **不兼容**（都注册 `/undo`、`/redo`，且都 hook 会话事件）：文档声明不可共存，v1 不做冲突检测。
 
 ---
 
 ## 7. 排除配置（用户自定义，通配符）
 
-配置来源：全局 `~/.pi/agent/settings.json` + 项目 `.pi/settings.json`（深合并，项目覆盖全局，同 pi-workspace-history 模式）。匹配引擎：`minimatch`（声明为插件依赖）。
+配置来源：全局 `~/.pi/agent/settings.json` + 项目 `.pi/settings.json`（深合并，项目覆盖全局）。匹配引擎：`minimatch`（声明为插件依赖）。
 
 ```json
 {
@@ -229,11 +228,11 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 
 - 用户 `exclude` 与内置默认值**取并集**；`!` 前缀可重新包含（后写覆盖先写）。
 - 匹配目标：cwd 内文件匹配"相对 cwd 路径"；cwd 外文件匹配"绝对路径"（含盘符，Windows 大小写不敏感）；两条都试，命中任一即排除。
-- `storageDir` 自身及其内容**硬排除**（防止自备份循环）；必须位于 workspace 外（同 pi-workspace-history 的约束，否则禁用并提示）。
-- `enabled`: `true | false | "auto"`；`auto` = 交互模式（`ctx.hasUI`）+ 目录为项目（含向上探测 marker，同 pi-workspace-history 逻辑，简化版）。
+- `storageDir` 自身及其内容**硬排除**（防止自备份循环）；必须位于 workspace 外，否则禁用并提示。
+- `enabled`: `true | false | "auto"`；`auto` = 交互模式（`ctx.hasUI`）+ 目录为项目（向上探测 marker：`.git` / `package.json` 等）。
 - `trackedTools` 可扩展（未来 pi 新增文件工具或自定义工具直接配置进去）。
 
-**与 CC 的差异**：CC 无排除配置（靠"只有编辑工具被跟踪"天然免疫）。本插件保留排除作为**纵深防御**（防 agent 误写 `.git/config`、巨型生成物等被快照），默认值最小化、可扩展，符合用户要求。
+**与 CC 的差异**：CC 无排除配置（靠"只有编辑工具被跟踪"天然免疫）。本插件保留排除作为**纵深防御**（防 agent 误写 `.git/config`、巨型生成物等被快照），默认值最小化、可扩展。
 
 ---
 
@@ -256,7 +255,7 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 |---|---|
 | 原子性 | 备份/state.json 均"临时文件 + rename"；恢复逐文件进行，失败终止并 notify（列出失败文件） |
 | 幂等 | fk2 等价比较（exists/mode/size/mtime/内容 Buffer 级），已一致跳过，重复 undo/redo 无副作用 |
-| Windows 文件锁 | 恢复失败重试 3 次（100/250/500ms），仍失败 → 终止并提示占用程序（pi-workspace-history 同款） |
+| Windows 文件锁 | 恢复失败重试 3 次（100/250/500ms），仍失败 → 终止并提示占用程序 |
 | 符号链接 | 跟踪与恢复均对 symlink 路径跳过（计数提示），采纳 CC 2.1.216 的修复 |
 | 二进制文件 | Buffer 读写（优于 CC 的 utf-8），保留 mode |
 | 崩溃恢复 | state.json 原子写 + session_shutdown 强制落盘；备份文件天然幂等（同内容同路径重写无害） |
@@ -278,7 +277,7 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 | 选择器 UI | `ctx.ui.select(title, string[])`（两段式：消息列表 → 操作菜单）、`ctx.ui.input`、`ctx.ui.notify` |
 | 对话回退 | `ctx.navigateTree(userEntryId, {summarize, customInstructions})`（编程调用不弹二次确认，已核实源码） |
 | 会话 id / 文件 | `ctx.sessionManager.getSessionId()`、`getSessionFile()`、`getEntries()` |
-| 设置读取 | 直接读 `~/.pi/agent/settings.json` + `<cwd>/.pi/settings.json`（pi-workspace-history 验证过的模式；扩展无 settingsManager） |
+| 设置读取 | 直接读 `~/.pi/agent/settings.json` + `<cwd>/.pi/settings.json`（扩展无 settingsManager） |
 | 路径/文件 | `node:fs/promises`、`node:path`、`node:crypto`、`node:os`（homedir 处理 `~`，Windows 兼容） |
 | 依赖 | `minimatch`（插件 package.json dependencies；pi 包安装走 production install） |
 
