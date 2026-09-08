@@ -165,7 +165,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
    每条带 diff 摘要（对该消息快照做 dry-run 恢复统计：文件数/+行/-行；快照缺失 → 最近更早快照）
 4. ctx.ui.select("Rewind to before…", 选项)  → 取消则无事发生
 5. 计算目标快照 S_M；dry-run 得出改动统计
-6. 菜单（与 CC 一致）：
+6. 菜单（与 CC 一致；文案走 i18n，`language` 配置见 §7，上列为 en 文案）：
      有文件改动：  1. Restore code and conversation  2. Restore conversation
                    3. Restore code  4. Summarize  5. Summarize with custom prompt  6. Never mind
      无文件改动：  1. Restore conversation  2. Summarize  3. Summarize with custom prompt  4. Never mind
@@ -180,7 +180,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
    - Never mind：直接关闭
 8. 推入 redo 栈（code/both → {restoreKey, oldLeafId}；conversation → {oldLeafId}）；超出 `maxRedoStackSize` 丢弃最旧项
 9. notify 结果（恢复 N 个文件 / 对话已回退 / 幂等提示"文件已是目标状态，未做改动"）
-10. UI 附注（同 CC）："Rewinding does not affect files edited manually or via bash"
+10. UI 附注（同 CC，i18n 文案）："Rewinding does not affect files edited manually or via bash"
 ```
 
 **navigateTree 的总结选项不会二次弹窗**（已核实源码：`/tree` 命令 UI 负责弹"Summarize branch?"三选一，`ctx.navigateTree({summarize})` 编程调用直接执行）——因此我们自己的菜单可以完整控制 6 个选项，无重复交互。
@@ -224,6 +224,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 {
   "candyUndo": {
     "enabled": true,
+    "language": "zh",
     "storageDir": "~/.pi/file-history",
     "exclude": [],
     "excludeDefaults": true,
@@ -243,6 +244,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `enabled` | `boolean` | `true` | 总开关。`true` 启用跟踪与命令；`false` 完全禁用。非交互模式（print/json）下不跟踪（对齐 CC）；`/undo`、`/redo` 仅在 `ctx.hasUI` 时可用 |
+| `language` | `"zh" \| "en"` | `"zh"` | 界面语言（菜单、提示、附注）。暂支持中英两种，后续可扩展 |
 | `storageDir` | `string` | `"~/.pi/file-history"` | 存储根目录（支持 `~` 展开，Windows/macOS/Linux 由 `path` 库处理）。**必须位于 workspace 外**，否则禁用并提示；其自身内容硬排除（防自备份循环） |
 | `exclude` | `string[]` | `[]` | 用户排除 glob 列表（gitignore 风格，`minimatch` 匹配，支持 `!` 否定）。与默认值取并集（见 `excludeDefaults`）；命中即不跟踪、不备份、不恢复。语义见下节 |
 | `excludeDefaults` | `boolean` | `true` | 是否并入内置默认排除值。`true` = 默认值 + 用户 `exclude` 取并集；`false` = 完全由用户 `exclude` 接管（内置默认值全部失效） |
@@ -338,10 +340,10 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 
 ---
 
-## 13. 待确认问题
+## 13. 决策记录（已确认）
 
-1. `exclude` 默认值清单是否合适？（`.git/** node_modules/** dist/** build/** **/.env* *.lock coverage/**`）
-2. `maxFileSizeMB` 默认 100、`maxSnapshotsPerSession` 默认 200 是否接受？
-3. "代码恢复失败即终止整个 undo"（与 CC 的"两路独立"不同）——是否同意更保守的方案？
-4. 菜单文案直接用英文（与 CC 一致）还是中文？
-5. 新增配置项是否接受：`excludeDefaults`（默认 true，可完全接管默认排除）、`maxRedoStackSize`（默认 50）、`pickerLimit`（默认 100）？
+1. `exclude` 默认值清单（`.git/** node_modules/** dist/** build/** **/.env* *.lock coverage/**`）→ **已确认：合理，采用**。
+2. `maxFileSizeMB` 默认 100、`maxSnapshotsPerSession` 默认 200 → **已确认：合理，采用**。
+3. "代码恢复失败即终止整个 undo"（与 CC 的"两路独立"不同，更保守）→ **已确认：同意，采用**。
+4. 菜单文案语言 → **已确认：加入 i18n**，新增配置 `language`（暂支持 `"zh"` / `"en"`），所有用户可见文案（菜单、提示、附注）走语言包（见 §7）。
+5. 新增配置项 `excludeDefaults`（默认 true，可完全接管默认排除）、`maxRedoStackSize`（默认 50）、`pickerLimit`（默认 100）→ **已确认：接受，采用**。
