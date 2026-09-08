@@ -77,7 +77,7 @@ interface UndoState {
   snapshots: Snapshot[];          // 按创建顺序，cap 见 §8
   originals: Record<path, FileBackupRecord | null>;  // 每文件"首次被 agent 编辑前"的状态（CC v1 语义）
   trackedFiles: string[];         // 所有被跟踪文件的规范路径
-  redo: RedoItem[];
+  redo: RedoItem[];                // redo 栈（随 state.json 持久化，无独立文件，见 §6）
 }
 
 interface RedoItem {
@@ -111,7 +111,7 @@ interface RedoItem {
     state.json                         ← UndoState（原子写：临时文件 + rename；500ms 防抖 + session_shutdown 落盘）
     backups/
       <sha256(文件绝对路径) 前16位>@v<N>  ← 不可变内容副本（Buffer 二进制安全，优于 CC 的 utf-8；保留 mode）
-  undo.log                             ← 仅 PI_UNDO_LOG=1 时记录（调试）
+  undo.log                             ← 调试日志（配置 `log: true` 时记录）
 ```
 
 - 与 CC 同构（CC：`~/.claude/file-history/<sessionId>/<hash>@vN`），但元数据用 **sidecar state.json** 而非写进会话 JSONL。
@@ -150,7 +150,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 - 同一文件同回合多次编辑只备份一次（originals 只写一次）。
 - `edit` 工具旧参数形态（`oldText/newText`）不影响：只读 `input.path`。
 - 并行工具调用同文件竞争：极小概率窗口（pi 内置 per-file 变更队列串行化实际写入），v1 接受，已知限制。
-- 文件大小超 `maxFileSizeBytes`（默认 10MB）→ 跳过跟踪并一次性提示（CC 无此保护）。
+- 文件大小超 `maxFileSizeMB`（默认 100）→ 跳过跟踪并一次性提示（CC 无此保护）。
 
 ---
 
@@ -178,7 +178,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
    - Summarize：navigateTree(userEntryId, {summarize:true})（pi 对离开的分支生成摘要）
    - Summarize with custom prompt：ctx.ui.input(...) → navigateTree({summarize:true, customInstructions})
    - Never mind：直接关闭
-8. 推入 redo 栈（code/both → {restoreKey, oldLeafId}；conversation → {oldLeafId}）
+8. 推入 redo 栈（code/both → {restoreKey, oldLeafId}；conversation → {oldLeafId}）；超出 `maxRedoStackSize` 丢弃最旧项
 9. notify 结果（恢复 N 个文件 / 对话已回退 / 幂等提示"文件已是目标状态，未做改动"）
 10. UI 附注（同 CC）："Rewinding does not affect files edited manually or via bash"
 ```
@@ -196,41 +196,71 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 6. pop 栈；notify 结果
 ```
 
+### redo 栈实现（存储策略）
+
+- **存储位置**：`state.json` 的 `redo` 字段（`UndoState.redo`），**无独立文件**，随状态防抖落盘 + `session_shutdown` 强制落盘（原子写）。
+- **入栈**：/undo 成功后 push（code/both → `{restoreKey, oldLeafId}`；conversation → `{oldLeafId}`）。
+- **出栈**：/redo 成功后 pop。
+- **清空**：新操作开始（真实用户 prompt）清空整个栈；**fork/克隆不迁移**（引用的 entryId 属于旧会话），新会话空栈。
+- **容量**：`maxRedoStackSize`（默认 50），超出丢弃最旧项。
+- **防失效**：快照 cap 淘汰最旧快照时**跳过 redo 栈引用的 redo-point 快照**（否则 /redo 会因 restoreKey 消失而失效，见 §8）。
+- **执行前校验**：oldLeafId 对应条目仍存在（`getEntry`）、restoreKey 快照仍存在；失效 → 丢弃该 redo 项并 notify。
+
 ### 冲突规避规则
 
 - **新操作开始（真实用户 prompt）→ 清空 redo 栈**。
-- undo 目标快照**永不被删**（快照 cap 只淘汰最旧的，见 §8）→ undo→redo→再 undo 可自由往返。
+- **undo 是只读操作**：不删除任何快照/备份 → undo→redo→再 undo 可自由往返。
 - redo 是绝对恢复 + 幂等 → 重复执行安全；多个会话（fork 后）交叉回退互不干扰，**哪个会话先回退谁生效，后回退者因内容已一致而跳过（幂等无操作）**，与 CC 实测行为一致。
 
 ---
 
-## 7. 排除配置（用户自定义，通配符）
+## 7. 配置项（settings.json）
 
-配置来源：全局 `~/.pi/agent/settings.json` + 项目 `.pi/settings.json`（深合并，项目覆盖全局）。匹配引擎：`minimatch`（声明为插件依赖）。
+**配置来源与合并规则**：全局 `~/.pi/agent/settings.json` + 项目 `.pi/settings.json`（深合并，项目覆盖全局）。读取时机：`session_start`，本会话内不热更新。匹配引擎：`minimatch`（声明为插件依赖）。**唯一配置入口为 settings.json，不接受任何环境变量配置。**
+
+**完整配置示例（全部字段 + 默认值）**：
 
 ```json
 {
   "candyUndo": {
     "enabled": true,
     "storageDir": "~/.pi/file-history",
-    "exclude": [".git/**", "node_modules/**", "dist/**", "build/**",
-                "**/.env*", "*.lock", "coverage/**"],
-    "maxSnapshotsPerSession": 200,
-    "maxFileSizeBytes": 10485760,
-    "cleanupPeriodDays": 30,
+    "exclude": [],
+    "excludeDefaults": true,
     "trackedTools": ["write", "edit"],
+    "maxFileSizeMB": 100,
+    "maxSnapshotsPerSession": 200,
+    "maxRedoStackSize": 50,
+    "cleanupPeriodDays": 30,
+    "pickerLimit": 100,
     "log": false
   }
 }
 ```
 
-语义（gitignore 风格，文档化）：
+**逐字段说明**：
 
-- 用户 `exclude` 与内置默认值**取并集**；`!` 前缀可重新包含（后写覆盖先写）。
-- 匹配目标：cwd 内文件匹配"相对 cwd 路径"；cwd 外文件匹配"绝对路径"（含盘符，Windows 大小写不敏感）；两条都试，命中任一即排除。
-- `storageDir` 自身及其内容**硬排除**（防止自备份循环）；必须位于 workspace 外，否则禁用并提示。
-- `enabled`: `true | false | "auto"`；`auto` = 交互模式（`ctx.hasUI`）+ 目录为项目（向上探测 marker：`.git` / `package.json` 等）。
-- `trackedTools` 可扩展（未来 pi 新增文件工具或自定义工具直接配置进去）。
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `enabled` | `boolean` | `true` | 总开关。`true` 启用跟踪与命令；`false` 完全禁用。非交互模式（print/json）下不跟踪（对齐 CC）；`/undo`、`/redo` 仅在 `ctx.hasUI` 时可用 |
+| `storageDir` | `string` | `"~/.pi/file-history"` | 存储根目录（支持 `~` 展开，Windows/macOS/Linux 由 `path` 库处理）。**必须位于 workspace 外**，否则禁用并提示；其自身内容硬排除（防自备份循环） |
+| `exclude` | `string[]` | `[]` | 用户排除 glob 列表（gitignore 风格，`minimatch` 匹配，支持 `!` 否定）。与默认值取并集（见 `excludeDefaults`）；命中即不跟踪、不备份、不恢复。语义见下节 |
+| `excludeDefaults` | `boolean` | `true` | 是否并入内置默认排除值。`true` = 默认值 + 用户 `exclude` 取并集；`false` = 完全由用户 `exclude` 接管（内置默认值全部失效） |
+| `trackedTools` | `string[]` | `["write", "edit"]` | 跟踪哪些工具的写入调用。可扩展：pi 新增文件工具或自定义工具名直接加进去 |
+| `maxFileSizeMB` | `number` | `100`（MB） | 单文件大小上限，超过则跳过跟踪并一次性提示（CC 无此保护）。`0` = 不限制 |
+| `maxSnapshotsPerSession` | `number` | `200` | 每会话快照数量上限，超出丢弃最旧快照（回退到极早消息时由 originals 兜底，见 §8）。最小 `1` |
+| `maxRedoStackSize` | `number` | `50` | redo 栈容量上限，超出丢弃最旧项 |
+| `cleanupPeriodDays` | `number` | `30` | 过期会话目录清理天数（按目录 mtime，见 §8）。`0` = 禁用自动清理 |
+| `pickerLimit` | `number` | `100` | `/undo` 消息列表最多展示的条数（最新 N 条），同时限制 dry-run 统计的计算量 |
+| `treeRestore` | `"ask" \| "off"` | （v2 预留） | 内置 /tree 导航时是否顺带询问恢复文件，走 `session_before_tree` 实现（见 §2.1，v1 不做） |
+| `log` | `boolean` | `false` | 调试日志开关。开启时写入 `<storageDir>/undo.log`，默认关闭 |
+
+### 排除匹配语义
+
+- **内置默认排除值**（`excludeDefaults: true` 时生效）：`.git/**`、`node_modules/**`、`dist/**`、`build/**`、`**/.env*`、`*.lock`、`coverage/**`。可扩展、可整体关闭（`excludeDefaults: false`）、可用 `!` 逐条重新包含。
+- **匹配顺序**：最终列表 = （默认值）+（用户 `exclude`），按顺序匹配，后写覆盖先写（minimatch 的 `!` 否定语义）。
+- **匹配目标**：cwd 内文件匹配"相对 cwd 路径"；cwd 外文件匹配"绝对路径"（含盘符，Windows 大小写不敏感）；两条都试，命中任一即排除。
+- **例外**：`storageDir` 自身及其内容无条件硬排除（不参与匹配，防自备份循环）。
 
 **与 CC 的差异**：CC 无排除配置（靠"只有编辑工具被跟踪"天然免疫）。本插件保留排除作为**纵深防御**（防 agent 误写 `.git/config`、巨型生成物等被快照），默认值最小化、可扩展。
 
@@ -243,7 +273,7 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 本方案：
 
 1. **过期会话目录**：`session_start`（每次启动，防抖 60s）扫描 `<storageDir>/*`，mtime 超 `cleanupPeriodDays`（默认 30，`0` 禁用）→ `rm -rf`。
-2. **快照 cap**：`maxSnapshotsPerSession`（默认 200）。超出时丢弃最旧快照（旧快照仍被 originals 兜底：回退到极早消息 = 恢复首次编辑前状态，降级可接受）。
+2. **快照 cap**：`maxSnapshotsPerSession`（默认 200）。超出时丢弃最旧快照（旧快照仍被 originals 兜底：回退到极早消息 = 恢复首次编辑前状态，降级可接受）。**淘汰时跳过 redo 栈引用的 redo-point 快照**（否则 /redo 会因 restoreKey 消失而失效）。
 3. **备份文件引用计数 GC**：state.json 写入时，删除 `backups/` 中不被任何保留快照 + originals 引用的备份文件。
 4. **originals 永不 GC**（任何回退的最终兜底，每文件仅一份）。
 
@@ -259,7 +289,7 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 | 符号链接 | 跟踪与恢复均对 symlink 路径跳过（计数提示），采纳 CC 2.1.216 的修复 |
 | 二进制文件 | Buffer 读写（优于 CC 的 utf-8），保留 mode |
 | 崩溃恢复 | state.json 原子写 + session_shutdown 强制落盘；备份文件天然幂等（同内容同路径重写无害） |
-| 超大文件 | 超过 maxFileSizeBytes 跳过跟踪 |
+| 超大文件 | 超过 maxFileSizeMB（默认 100）跳过跟踪 |
 | 会话缺失 | `pi --no-session`（无持久化）→ 正常跟踪但 state.json 按 sessionId 落盘，由过期清理回收 |
 | 与 /tree、/fork 共存 | v1 不 hook `session_before_tree`（见 §2.1：恢复保持显式、不改变内置 /tree 行为）；undo 的对话回退完全走内置 navigateTree |
 
@@ -311,6 +341,7 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 ## 13. 待确认问题
 
 1. `exclude` 默认值清单是否合适？（`.git/** node_modules/** dist/** build/** **/.env* *.lock coverage/**`）
-2. `maxFileSizeBytes` 默认 10MB、`maxSnapshotsPerSession` 默认 200 是否接受？
+2. `maxFileSizeMB` 默认 100、`maxSnapshotsPerSession` 默认 200 是否接受？
 3. "代码恢复失败即终止整个 undo"（与 CC 的"两路独立"不同）——是否同意更保守的方案？
 4. 菜单文案直接用英文（与 CC 一致）还是中文？
+5. 新增配置项是否接受：`excludeDefaults`（默认 true，可完全接管默认排除）、`maxRedoStackSize`（默认 50）、`pickerLimit`（默认 100）？
