@@ -1,7 +1,7 @@
 # pi-candy-undo 设计文档
 
 > 方案对标 Claude Code 的 `/rewind`（"文件级快照 + 消息选择器"），针对 pi 的扩展 API 落地，并做针对性增强。
-> 状态：**设计已定稿**（实施中）。
+> 状态：**已实施**（v1.0.0，含 82 项自动化测试）。
 
 ---
 
@@ -64,7 +64,8 @@ interface FileBackupRecord {
 
 // 快照：一次操作（一个用户回合）开始前，所有被跟踪文件的集合状态
 interface Snapshot {
-  key: string;                    // 绑定的用户消息 entryId；未绑定时为 opId(uuid)
+  id: string;                     // 稳定内部 id（uuid），不随绑定变化
+  key: string;                    // 绑定目标：用户消息 entryId；未绑定时为 opId(uuid)
   files: Record<path, FileBackupRecord>;  // path 规范：cwd 内相对、cwd 外绝对（同 CC hk2）
   createdAt: string;
   kind: "operation" | "baseline" | "redo-point";
@@ -75,7 +76,7 @@ interface UndoState {
   version: 1;
   sessionId: string;
   snapshots: Snapshot[];          // 按创建顺序，cap 见 §8
-  originals: Record<path, FileBackupRecord | null>;  // 每文件"首次被 agent 编辑前"的状态（CC v1 语义）
+  originals: Record<path, FileBackupRecord>;  // 每文件"首次被 agent 编辑前"的状态（CC v1 语义）
   trackedFiles: string[];         // 所有被跟踪文件的规范路径
   redo: RedoItem[];                // redo 栈（随 state.json 持久化，无独立文件，见 §6）
 }
@@ -126,7 +127,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 |---|---|
 | `startup` / `reload` | 读本会话 state.json（按 sessionId） |
 | `resume` | sessionId 不变 → 直接读 |
-| `fork`（/fork、/clone 都走这里） | 新会话新 sessionId：读 previousSessionFile 头部 uuid → **复制其 state.json + 硬链接 backups/**（失败降级为复制，CC 同款）；**不迁移 redo 栈**（引用的 entryId 属于旧会话） |
+| `fork`（/fork、/clone 都走这里） | 新会话新 sessionId：读 previousSessionFile 头部 uuid → **复制其 state.json + 硬链接 backups/**（失败降级为复制，CC 同款）；**不迁移 redo 栈**（引用的 entryId 属于旧会话）。仅当旧会话 cwd 与当前 cwd 一致时才迁移（存储路径是 cwd 相对，跨目录会解析错位） |
 
 迁移后新会话自包含，与旧会话互相独立（备份不可变 → 硬链接零风险；交叉回退互不干扰，见 §9）。
 
@@ -216,7 +217,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 
 ## 7. 配置项（settings.json）
 
-**配置来源与合并规则**：全局 `~/.pi/agent/settings.json` + 项目 `.pi/settings.json`（深合并，项目覆盖全局）。读取时机：`session_start`，本会话内不热更新。匹配引擎：`minimatch`（声明为插件依赖）。**唯一配置入口为 settings.json，不接受任何环境变量配置。**
+**配置来源与合并规则**：全局 `~/.pi/agent/settings.json`（等价 `getAgentDir()/settings.json`）+ 项目 `.pi/settings.json`（等价 `<cwd>/<CONFIG_DIR_NAME>/settings.json`）（深合并，项目覆盖全局；**项目设置仅在项目被信任时读取**，见 `ctx.isProjectTrusted()`）。读取时机：`session_start`，本会话内不热更新。匹配引擎：`minimatch`（声明为插件依赖）。**唯一配置入口为 settings.json，不接受任何环境变量配置。**
 
 **完整配置示例（全部字段 + 默认值）**：
 
@@ -275,7 +276,7 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 本方案：
 
 1. **过期会话目录**：`session_start`（每次启动，防抖 60s）扫描 `<storageDir>/*`，mtime 超 `cleanupPeriodDays`（默认 30，`0` 禁用）→ `rm -rf`。
-2. **快照 cap**：`maxSnapshotsPerSession`（默认 200）。超出时丢弃最旧快照（旧快照仍被 originals 兜底：回退到极早消息 = 恢复首次编辑前状态，降级可接受）。**淘汰时跳过 redo 栈引用的 redo-point 快照**（否则 /redo 会因 restoreKey 消失而失效）。
+2. **快照 cap**：`maxSnapshotsPerSession`（默认 200）。超出时丢弃最旧快照（baseline 永不清除；operation 与 redo-point 均可被淘汰，但 redo 栈引用的快照受保护）。旧快照被淘汰后，回退到极早消息 = 恢复首次编辑前状态（originals 兜底），降级可接受。
 3. **备份文件引用计数 GC**：state.json 写入时，删除 `backups/` 中不被任何保留快照 + originals 引用的备份文件。
 4. **originals 永不 GC**（任何回退的最终兜底，每文件仅一份）。
 
@@ -309,9 +310,9 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 | 选择器 UI | `ctx.ui.select(title, string[])`（两段式：消息列表 → 操作菜单）、`ctx.ui.input`、`ctx.ui.notify` |
 | 对话回退 | `ctx.navigateTree(userEntryId, {summarize, customInstructions})`（编程调用不弹二次确认，已核实源码） |
 | 会话 id / 文件 | `ctx.sessionManager.getSessionId()`、`getSessionFile()`、`getEntries()` |
-| 设置读取 | 直接读 `~/.pi/agent/settings.json` + `<cwd>/.pi/settings.json`（扩展无 settingsManager） |
+| 设置读取 | 直接读 `~/.pi/agent/settings.json`（`getAgentDir()/settings.json`）+ `.pi/settings.json`（`<cwd>/<CONFIG_DIR_NAME>/settings.json`）（扩展无 settingsManager；用官方导出避免硬编码路径；项目设置受 `ctx.isProjectTrusted()` 门控） |
 | 路径/文件 | `node:fs/promises`、`node:path`、`node:crypto`、`node:os`（homedir 处理 `~`，Windows 兼容） |
-| 依赖 | `minimatch`（插件 package.json dependencies；pi 包安装走 production install） |
+| 依赖 | `minimatch`（排除匹配）、`diff`（恢复预览的 +/− 行统计）（插件 package.json dependencies；pi 包安装走 production install） |
 
 **命令名**：`/undo`、`/redo`（pi 命令名不支持空格/别名，与既有约定一致）。
 
@@ -328,15 +329,49 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 
 ---
 
-## 12. 实施计划（审阅通过后执行）
+## 12. 实施计划与结果
 
-1. 骨架：`pi-candy-undo/` 包结构（`.pi/extensions/undo.ts` + package.json + 类型）
+### 12.1 计划（原方案）
+
+1. 骨架：`pi-candy-undo/` 包结构（`extensions/index.ts` + package.json + 类型）
 2. 存储层：路径/配置加载/排除匹配/state.json 读写/备份文件 CRUD
 3. 跟踪层：tool_call hook + before_agent_start 快照 + turn_end 绑定 + fork 迁移
 4. 恢复层：fk2 等价比较 + 恢复执行 + Windows 重试 + 符号链接防护
 5. 命令层：/undo 两段式菜单 + /redo + 幂等提示 + redo 栈规则
 6. 清理层：过期目录 GC + 快照 cap + 备份引用计数
 7. 测试：单元（幂等/排除/迁移）+ 手工场景（首回合、cwd 外文件、fork 交叉回退、undo/redo 往返）
+
+### 12.2 实施结果
+
+代码结构（2635 行源码 + 1784 行测试）：
+
+```
+pi-candy-undo/
+  extensions/index.ts    # pi 接线（7 个事件 + /undo + /redo + ctx 适配）
+  src/
+    types.ts    config.ts   paths.ts   exclude.ts   i18n.ts   log.ts
+    storage.ts  state.ts    tracker.ts restore.ts    session.ts commands.ts
+  tests/         # node --test，82 项用例（真实文件系统 + 桩 pi API）
+```
+
+分层：存储层（paths/config/exclude/storage/state）→ 跟踪层（tracker/session）→ 恢复层（restore）→ 命令层（commands）→ 入口接线（extensions/index.ts）。所有 `src/` 模块不依赖 pi 运行时（只用 `import type`），因此可用 `node --test` 直接测试；入口层用桩 `ExtensionAPI` 做集成测试。
+
+验证：
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | 82/82 通过，连续 5 轮无 flaky |
+| `npm run typecheck` | 通过（strict + noUnusedLocals + erasableSyntaxOnly） |
+| pi 官方 jiti 加载器 | 加载成功，注册 7 事件 + 2 命令 |
+| `pi -e ./pi-candy-undo --help` | 真实 pi 加载无错误 |
+| RPC 真实会话 | session_start 建 storage/baseline；`/undo` → "Nothing to undo"；`/redo` → "Nothing to redo"；无扩展错误 |
+
+测试中发现并修复的缺陷：
+
+1. `bindOperation` 的 pending id 与 `snapshot.key` 混用，导致快照绑定永不生效（已加回归测试）。
+2. 跟踪期 mtime 快捷判断误用 `<=`，同毫秒内改写会被误判为“未修改”（CC 用严格 `<`）；已修正并加同时间戳回归测试。
+
+与计划的差异：`Snapshot` 增加稳定 `id`；依赖增加 `diff`（恢复预览行统计）；项目设置读取增加 `ctx.isProjectTrusted()` 门控；fork 迁移增加 cwd 一致性守卫；快照 cap 同时淘汰 operation 与 redo-point（baseline 永久保留）。
 
 ---
 

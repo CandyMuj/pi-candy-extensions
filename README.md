@@ -17,9 +17,10 @@
 
 | 插件 | 说明 | 文档 |
 |------|------|------|
-| [pi-candy-toolbox](pi-candy-toolbox) | 小工具聚合箱：一个插件收纳零散小功能，每个工具独立开关与配置 | [README](pi-candy-toolbox/README.md) |
-| [pi-candy-win-notify](pi-candy-win-notify) | Windows 桌面通知 + 终端标签页状态显示 | [README](pi-candy-win-notify/README.md) |
 | [pi-candy-themes](pi-candy-themes) | Selenized 配色主题包 | [README](pi-candy-themes/README.md) |
+| [pi-candy-win-notify](pi-candy-win-notify) | Windows 桌面通知 + 终端标签页状态显示 | [README](pi-candy-win-notify/README.md) |
+| [pi-candy-toolbox](pi-candy-toolbox) | 小工具聚合箱：一个插件收纳零散小功能，每个工具独立开关与配置 | [README](pi-candy-toolbox/README.md) |
+| [pi-candy-undo](pi-candy-undo) | 文件级撤销/重做（对标 Claude Code `/rewind`）：`/undo`、`/redo`，回退对话与 agent 改过的文件 | [README](pi-candy-undo/README.md) |
 
 ## 安装
 
@@ -27,7 +28,7 @@
 
 ```bash
 cd pi-candy-extensions
-pi install ./pi-candy-toolbox      # 或 pi-candy-win-notify / pi-candy-themes
+pi install ./pi-candy-themes     # 目录名见上方插件列表
 ```
 
 依赖与配置细节见各插件 README；toolbox 内各工具的详细文档见其 `docs/` 目录。
