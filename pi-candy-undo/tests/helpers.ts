@@ -1,0 +1,144 @@
+/**
+ * Test helpers: temp dirs, a fake pi session API, and fake branch entries.
+ */
+
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { DEFAULT_CONFIG } from "../src/config.ts";
+import type { CommandApi } from "../src/session.ts";
+import type { BranchEntry, UndoConfig } from "../src/types.ts";
+
+export function makeConfig(overrides: Partial<UndoConfig> = {}): UndoConfig {
+  return { ...DEFAULT_CONFIG, language: "en", ...overrides };
+}
+
+export async function makeTempDir(prefix = "pi-candy-undo-"): Promise<string> {
+  return await mkdtemp(path.join(tmpdir(), prefix));
+}
+
+export async function removeTempDir(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true });
+}
+
+export async function writeTextFile(file: string, content: string): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, content, "utf8");
+}
+
+export type SelectAnswer = (options: string[]) => string | undefined;
+
+/** Pick the first option containing the given substring. */
+export function selectContaining(substring: string): SelectAnswer {
+  return (options) => options.find((option) => option.includes(substring));
+}
+
+/** Pick the first option starting with the given prefix (menu labels may share words). */
+export function selectStartsWith(prefix: string): SelectAnswer {
+  return (options) => options.find((option) => option.startsWith(prefix));
+}
+
+export function selectCancel(): SelectAnswer {
+  return () => undefined;
+}
+
+export interface FakeApiOptions {
+  cwd: string;
+  sessionId?: string;
+  hasUI?: boolean;
+  mode?: string;
+}
+
+export class FakeSession {
+  readonly cwd: string;
+  readonly sessionId: string;
+  readonly hasUI: boolean;
+  readonly mode: string;
+  branch: BranchEntry[] = [];
+  leafId: string | null = null;
+  notices: Array<{ message: string; type: string }> = [];
+  navigations: Array<{ targetId: string; options: { summarize: boolean; customInstructions?: string } }> = [];
+  navigateCancelled = false;
+  projectTrusted = true;
+  selectCalls: string[][] = [];
+  inputCalls: string[] = [];
+
+  private selectQueue: SelectAnswer[] = [];
+  private inputQueue: Array<string | undefined> = [];
+
+  constructor(options: FakeApiOptions) {
+    this.cwd = options.cwd;
+    this.sessionId = options.sessionId ?? "test-session";
+    this.hasUI = options.hasUI ?? true;
+    this.mode = options.mode ?? "tui";
+  }
+
+  queueSelect(answer: SelectAnswer): void {
+    this.selectQueue.push(answer);
+  }
+
+  queueInput(answer: string | undefined): void {
+    this.inputQueue.push(answer);
+  }
+
+  pushUserMessage(id: string, text: string, parentId: string | null = this.leafId): BranchEntry {
+    const entry: BranchEntry = {
+      type: "message",
+      id,
+      parentId,
+      message: { role: "user", content: text },
+    };
+    this.branch.push(entry);
+    this.leafId = id;
+    return entry;
+  }
+
+  pushAssistant(id: string, parentId: string | null = this.leafId): BranchEntry {
+    const entry: BranchEntry = {
+      type: "message",
+      id,
+      parentId,
+      message: { role: "assistant", content: "ok" },
+    };
+    this.branch.push(entry);
+    this.leafId = id;
+    return entry;
+  }
+
+  get api(): CommandApi {
+    return {
+      sessionId: this.sessionId,
+      cwd: this.cwd,
+      hasUI: this.hasUI,
+      mode: this.mode,
+      getSessionFile: () => undefined,
+      getBranch: () => this.branch,
+      getLeafId: () => this.leafId,
+      getEntry: (id: string) => this.branch.find((entry) => entry.id === id),
+      notify: (message, type) => this.notices.push({ message, type }),
+      isProjectTrusted: () => this.projectTrusted,
+      select: async (title, options) => {
+        this.selectCalls.push([title, ...options]);
+        const answer = this.selectQueue.shift();
+        return answer ? answer(options) : undefined;
+      },
+      input: async (title) => {
+        this.inputCalls.push(title);
+        return this.inputQueue.shift();
+      },
+      navigateTree: async (targetId, options) => {
+        this.navigations.push({ targetId, options });
+        if (this.navigateCancelled) {
+          return { cancelled: true };
+        }
+        this.leafId = targetId;
+        return { cancelled: false };
+      },
+      waitForIdle: async () => {},
+    };
+  }
+
+  lastNotice(): { message: string; type: string } | undefined {
+    return this.notices[this.notices.length - 1];
+  }
+}

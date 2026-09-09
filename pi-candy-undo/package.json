@@ -1,0 +1,48 @@
+{
+  "name": "pi-candy-undo",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "pi 的文件级撤销/重做插件 — 对标 Claude Code /rewind：按用户消息回退对话与 agent 改过的文件，支持 cwd 外文件、redo、i18n",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "undo",
+    "redo",
+    "rewind",
+    "checkpoint",
+    "file-history"
+  ],
+  "author": "CandyMuj",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CandyMuj/pi-candy-extensions.git"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "files": [
+    "extensions",
+    "src",
+    "docs",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "diff": "^8.0.2",
+    "minimatch": "^10.0.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.2"
+  }
+}
