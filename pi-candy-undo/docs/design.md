@@ -14,13 +14,24 @@
   - 代码（把 agent 改过的文件恢复为该消息时刻的内容）
 - `/redo`：撤销最近一次 `/undo`。
 
-**范围边界（与 CC 一致）**：
+### 1.1 范围边界（与 CC 一致）
+
 
 - 只跟踪 agent 通过文件编辑工具改过的文件 → 手动改的、`bash` 改的文件天然不受影响（UI 提示与 CC 相同："Rewinding does not affect files edited manually or via bash"）。
 - 文件恢复是"**绝对恢复**"（把文件设为目标快照内容），幂等：已处于目标状态时跳过写入（CC `fk2` 语义）。
 - 支持恢复 **cwd 之外** 的文件（CC 特性，工具级跟踪天然支持）。
 
-**非目标（v1 不做）**：`/checkpoint`、Esc-Esc 快捷键、自定义 TUI 组件选择器（先用 `ctx.ui.select` 两段式）、对话注入的 agent 自调用 undo。
+### 1.2 明确不做（含理由）
+
+以下为**经评估后确定不做**的能力（非"暂缓"），理由一并列出，避免后续被误判为遗漏：
+
+| 不做的事 | 理由 |
+|---|---|
+| `/checkpoint`（手动打点） | 本插件没有脏检查：手动修改从不进入跟踪集合，不存在"被回退覆盖"的风险，无需手动打点去保护；而"回到某一时刻"已由每个操作自动建快照覆盖（回退到任一消息即可） |
+| Esc-Esc 快捷键 | 双击 Esc 已被 pi 内置 `doubleEscapeAction`（默认 `tree`）占用；扩展的 `registerShortcut` 只接受单键组合，无法接管这类应用级手势 |
+| 自定义 TUI 选择器（`ctx.ui.custom`） | 两段式 `ctx.ui.select` 在 TUI 与 RPC 均可用；`ctx.ui.custom()` 在 RPC 模式返回 `undefined`，属 TUI 专属，需额外维护组件代码与模式回退分支，收益有限 |
+| 内置 `/tree` 集成（导航时顺带恢复文件） | 需 hook `session_before_tree`，会改变 pi 内置 `/tree` 的行为（每次树导航都可能弹窗），易与其他扩展冲突，并破坏"只有 `/undo` 会动文件"的显式性；`/undo` 已完整覆盖该需求 |
+| 暴露给模型的自调用 undo（注册工具） | 让模型自主回退文件容易与用户意图冲突；CC 同样不把 rewind 暴露给模型，undo 保持为用户专属操作 |
 
 ---
 
@@ -47,8 +58,6 @@
 4. **控制流简单 = 可靠**：独立命令全程在 handler 内串行（选择 → dry-run → 菜单 → 恢复 → 导航 → redo 入栈），不依赖跨扩展事件协作、不受其他扩展 handler 返回值影响。
 
 代价（已评估）：文件恢复与对话导航是两个连续步骤、非原子整体——恢复成功后若 `navigateTree` 被取消（如用户中止摘要），会出现"文件已回退、对话未回退"。缓解：恢复前必建 redo-point 快照（可 /redo 或重试），且正常路径下无第三方扩展取消导航。
-
-v2 可选：若需"内置 /tree 导航时也顺带恢复文件"，加配置 `treeRestore: "ask" | "off"` 走 `session_before_tree` 实现，v1 不做。
 
 ---
 
@@ -255,7 +264,6 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 | `maxRedoStackSize` | `number` | `50` | redo 栈容量上限，超出丢弃最旧项 |
 | `cleanupPeriodDays` | `number` | `30` | 过期会话目录清理天数（按目录 mtime，见 §8）。`0` = 禁用自动清理 |
 | `pickerLimit` | `number` | `100` | `/undo` 消息列表最多展示的条数（最新 N 条），同时限制 dry-run 统计的计算量 |
-| `treeRestore` | `"ask" \| "off"` | （v2 预留） | 内置 /tree 导航时是否顺带询问恢复文件，走 `session_before_tree` 实现（见 §2.1，v1 不做） |
 | `log` | `boolean` | `false` | 调试日志开关。开启时写入 `<storageDir>/undo.log`，默认关闭 |
 
 ### 排除匹配语义
@@ -294,7 +302,7 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 | 崩溃恢复 | state.json 原子写 + session_shutdown 强制落盘；备份文件天然幂等（同内容同路径重写无害） |
 | 超大文件 | 超过 maxFileSizeMB（默认 100）跳过跟踪 |
 | 会话缺失 | `pi --no-session`（无持久化）→ 正常跟踪但 state.json 按 sessionId 落盘，由过期清理回收 |
-| 与 /tree、/fork 共存 | v1 不 hook `session_before_tree`（见 §2.1：恢复保持显式、不改变内置 /tree 行为）；undo 的对话回退完全走内置 navigateTree |
+| 与 /tree、/fork 共存 | 不 hook `session_before_tree`（`/tree` 集成为明确不做项，见 §1.2）：内置 `/tree`、`/fork` 行为完全不受影响；undo 的对话回退完全走内置 `navigateTree` |
 
 ---
 
@@ -371,7 +379,7 @@ pi-candy-undo/
 1. `bindOperation` 的 pending id 与 `snapshot.key` 混用，导致快照绑定永不生效（已加回归测试）。
 2. 跟踪期 mtime 快捷判断误用 `<=`，同毫秒内改写会被误判为“未修改”（CC 用严格 `<`）；已修正并加同时间戳回归测试。
 
-与计划的差异：`Snapshot` 增加稳定 `id`；依赖增加 `diff`（恢复预览行统计）；项目设置读取增加 `ctx.isProjectTrusted()` 门控；fork 迁移增加 cwd 一致性守卫；快照 cap 同时淘汰 operation 与 redo-point（baseline 永久保留）。
+与计划的差异：`Snapshot` 增加稳定 `id`；依赖增加 `diff`（恢复预览行统计）；项目设置读取增加 `ctx.isProjectTrusted()` 门控；fork 迁移增加 cwd 一致性守卫；快照 cap 同时淘汰 operation 与 redo-point（baseline 永久保留）；移除计划中 v2 预留的 `treeRestore` 字段（`/tree` 集成为明确不做项，见 §1.2）。
 
 ---
 
