@@ -1,12 +1,11 @@
 /**
- * Tracking layer (docs/design.md §5).
+ * 跟踪层（docs/design.md §5）。
  *
- * - `trackToolCall` runs before a tracked tool writes: the first time a file is
- *   seen its pre-edit content is stored in `originals` (CC v1 semantics).
- * - `beginOperation` runs before an agent operation starts and records the
- *   current content of every tracked file as an operation snapshot.
- * - `bindOperation` attaches that snapshot to the user message entry that
- *   started the operation.
+ * - `trackToolCall` 在被跟踪工具写入之前运行：文件首次出现时，把编辑前
+ *   内容存入 `originals`（CC v1 语义）。
+ * - `beginOperation` 在 agent 操作开始前运行，把所有跟踪文件的当前内容
+ *   记录为操作快照。
+ * - `bindOperation` 把该快照绑定到开启这次操作的用户消息条目。
  */
 
 import { randomUUID } from "node:crypto";
@@ -36,9 +35,9 @@ export interface TrackerOptions {
   logger: Logger;
   platform?: NodeJS.Platform;
   now?: () => Date;
-  /** Hard exclusion (storage dir and anything inside it). */
+  /** 硬排除（存储目录及其内部的一切）。 */
   isHardExcluded?: (absolutePath: string) => boolean;
-  /** Notify the user (oversize files, backup failures). */
+  /** 向用户提示（超大文件、备份失败）。 */
   onNotice?: (key: MessageKey, params?: Record<string, string | number>) => void;
 }
 
@@ -84,7 +83,7 @@ export class Tracker {
     this.pendingOperation = undefined;
   }
 
-  /** Baseline snapshot so that the first operation can always be undone. */
+  /** baseline 快照，保证首个操作总能被撤销。 */
   async ensureBaseline(): Promise<void> {
     if (this.state.snapshots.some((snapshot) => snapshot.kind === "baseline")) {
       return;
@@ -95,8 +94,8 @@ export class Tracker {
   }
 
   /**
-   * Capture the pre-edit state of a file the agent is about to modify.
-   * Called from the `tool_call` event, before the tool executes.
+   * 捕获 agent 即将修改的文件的编辑前状态。
+   * 由 `tool_call` 事件在工具执行前调用。
    */
   async trackToolCall(toolName: string, input: unknown): Promise<void> {
     if (!this.options.config.enabled || !this.options.config.trackedTools.includes(toolName)) {
@@ -153,7 +152,7 @@ export class Tracker {
     }
   }
 
-  /** Create the operation snapshot (before_agent_start). */
+  /** 创建操作快照（before_agent_start）。 */
   async beginOperation(startLeafId: string | null): Promise<void> {
     if (this.pendingOperation !== undefined) {
       return;
@@ -174,7 +173,7 @@ export class Tracker {
     this.options.logger.log(`operation snapshot id=${snapshot.id} files=${Object.keys(snapshot.files).length}`);
   }
 
-  /** Drop the oldest snapshots and delete backups nothing references (docs §8). */
+  /** 丢弃最旧的快照，并删除不再被引用的备份（docs §8）。 */
   private enforceCapAndGc(): void {
     const evicted = enforceSnapshotCap(
       this.state,
@@ -194,7 +193,7 @@ export class Tracker {
       .catch(() => {});
   }
 
-  /** Bind the pending operation snapshot to the user message that started it. */
+  /** 把待定操作快照绑定到开启它的用户消息。 */
   bindOperation(branch: readonly BranchEntry[]): string | undefined {
     const pending = this.pendingOperation;
     if (pending === undefined) {
@@ -220,7 +219,7 @@ export class Tracker {
     return userEntry.id;
   }
 
-  /** Snapshot of the current tracked-file state, used as a redo target. */
+  /** 当前跟踪文件状态的快照，用作 redo 目标。 */
   async createRedoPoint(): Promise<Snapshot> {
     const snapshot: Snapshot = {
       id: randomUUID(),
@@ -236,7 +235,7 @@ export class Tracker {
     return snapshot;
   }
 
-  /** Current content records for every tracked file (reuse unchanged backups). */
+  /** 每个跟踪文件的当前内容记录（内容未变则复用备份）。 */
   private async captureTrackedFiles(): Promise<Record<string, FileBackupRecord>> {
     const files: Record<string, FileBackupRecord> = {};
     for (const storedPath of this.state.trackedFiles) {
@@ -245,7 +244,7 @@ export class Tracker {
       const previous = latestRecordFor(this.state, storedPath);
 
       if (info?.isSymbolicLink()) {
-        // Never follow links: keep the previous record so restore skips it.
+        // 永不跟随链接：保留上一条记录，让恢复阶段跳过它。
         if (previous !== undefined) {
           files[storedPath] = previous;
         }
@@ -289,10 +288,10 @@ export class Tracker {
     if (currentInfo.size !== backupInfo.size) {
       return false;
     }
-    // The backup was created by reading this file, so a strictly older mtime
-    // means the content still matches (same shortcut as CC fk2). Equal
-    // timestamps must fall through to a content comparison because the file
-    // may have been rewritten within the same clock tick.
+    // 备份是读取该文件后创建的，因此严格更早的 mtime
+    // 说明内容仍然一致（与 CC fk2 相同的快捷判断）。
+    // 时间戳相等时必须继续做内容比较，因为文件
+    // 可能在同一时间刻度内被重写。
     if (currentInfo.mtimeMs < backupInfo.mtimeMs) {
       return true;
     }

@@ -1,9 +1,8 @@
 /**
- * Restore layer (docs/design.md §3 restore algorithm, §9 reliability).
+ * 恢复层（docs/design.md §3 恢复算法、§9 可靠性）。
  *
- * Restore is absolute and idempotent: a file already matching its backup is
- * skipped (CC `fk2` semantics). Symlinks and hard links are never written or
- * deleted (CC 2.1.216 guard).
+ * 恢复是绝对且幂等的：文件已与备份一致时跳过（CC `fk2` 语义）。
+ * 符号链接与硬链接永远不会被写入或删除（CC 2.1.216 防护）。
  */
 
 import { diffLines } from "diff";
@@ -69,7 +68,7 @@ async function withRetry<T>(
   }
 }
 
-/** Target record for a tracked file: snapshot record, else first-seen original. */
+/** 跟踪文件的目标记录：优先快照记录，否则回落到首次出现的原始状态。 */
 export function resolveRecord(
   state: StateStore["state"],
   target: Snapshot,
@@ -143,9 +142,8 @@ async function inspect(absolutePath: string): Promise<FileState> {
 }
 
 /**
- * fk2 equivalent: does `absolutePath` differ from the backup content?
- * `trustMtime` short-circuits when the file is older than the backup
- * (used for display-only statistics).
+ * fk2 等价判断：`absolutePath` 与备份内容是否不同？
+ * `trustMtime` 在文件早于备份时短路（仅用于展示统计）。
  */
 async function needsRestore(
   absolutePath: string,
@@ -176,7 +174,7 @@ function backupPath(deps: RestoreDeps, record: FileBackupRecord): string | undef
   return record.backupFileName === null ? undefined : path.join(deps.paths.backupsDir, record.backupFileName);
 }
 
-/** Dry-run statistics for the picker and the confirmation menu. */
+/** 供选择器与确认菜单使用的预演（dry-run）统计。 */
 export async function computeStats(deps: RestoreDeps, target: Snapshot): Promise<RestoreStats> {
   const stats: RestoreStats = { filesChanged: [], insertions: 0, deletions: 0, skipped: [] };
   for (const storedPath of deps.store.state.trackedFiles) {
@@ -233,8 +231,8 @@ export async function computeStats(deps: RestoreDeps, target: Snapshot): Promise
 }
 
 /**
- * Restore every tracked file to the target snapshot state.
- * Throws RestoreError when any file could not be restored.
+ * 把所有跟踪文件恢复到目标快照状态。
+ * 任一文件恢复失败时抛出 RestoreError。
  */
 export async function restoreSnapshot(deps: RestoreDeps, target: Snapshot): Promise<RestoreResult> {
   const sleep = deps.sleep ?? defaultSleep;

@@ -37,7 +37,7 @@ async function makeHarness(): Promise<Harness> {
   return { root, workspace, fake, session };
 }
 
-/** Simulate one agent operation: prompt -> snapshot -> edit -> bind. */
+/** 模拟一次 agent 操作：prompt -> 快照 -> 编辑 -> 绑定。 */
 async function runOperation(
   h: Harness,
   options: { id: string; prompt: string; file: string; after: string },
@@ -256,7 +256,7 @@ test("queued input stays inside the same operation", async () => {
     await h.session.onToolCall("write", { path: "a.txt", content: "v1" });
     await writeTextFile(path.join(h.workspace, "a.txt"), "v1");
 
-    // Queued steering input must not start a new operation snapshot.
+    // 排队的 steering 输入不得开启新的操作快照。
     h.session.onInput("also do X", "interactive", "steer");
     await h.session.onBeforeAgentStart("also do X");
     h.fake.pushUserMessage("u1b", "also do X");
@@ -287,7 +287,7 @@ test("restore failures abort the undo before navigation", async () => {
   try {
     await writeTextFile(path.join(h.workspace, "a.txt"), "v0");
     await runOperation(h, { id: "u1", prompt: "first", file: "a.txt", after: "v1" });
-    // Corrupt the target snapshot: point at a backup that does not exist.
+    // 破坏目标快照：指向一个不存在的备份。
     const snapshot = h.session.store.state.snapshots.at(-1);
     assert.ok(snapshot);
     snapshot.files["a.txt"] = { backupFileName: "missing@v9", version: 9, backupTime: "" };
@@ -344,7 +344,7 @@ test("extension-injected input does not start an operation", async () => {
     await h.session.onAgentSettled();
     assert.equal(h.session.store.state.snapshots.filter((s) => s.kind === "operation").length, 1);
 
-    // An extension injects a message and triggers a run.
+    // 扩展注入一条消息并触发一次运行。
     h.session.onInput("injected", "extension", undefined);
     await h.session.onBeforeAgentStart("injected");
     assert.equal(h.session.store.state.snapshots.filter((s) => s.kind === "operation").length, 1);

@@ -1,29 +1,29 @@
 /**
- * Shared data types for pi-candy-undo.
+ * pi-candy-undo 的共享数据类型。
  *
- * Storage model (see docs/design.md §3):
- * - A snapshot records the state of every tracked file at a point in time.
- * - Backups are immutable content copies; records only reference them.
- * - `originals` keeps the first-seen state of each file (CC v1 semantics).
+ * 存储模型（见 docs/design.md §3）：
+ * - 快照记录某一时刻所有跟踪文件的状态。
+ * - 备份是不可变的内容副本，记录只是对它们的引用。
+ * - `originals` 保存每个文件首次出现时的状态（CC v1 语义）。
  */
 
 export type SnapshotKind = "baseline" | "operation" | "redo-point";
 
-/** Reference to an immutable backup file (or "file did not exist"). */
+/** 对不可变备份文件的引用（或表示“文件当时不存在”）。 */
 export interface FileBackupRecord {
-  /** Backup file name inside the session backup dir; null = file did not exist. */
+  /** 会话备份目录中的备份文件名；null = 文件当时不存在。 */
   backupFileName: string | null;
   version: number;
   backupTime: string;
 }
 
 export interface Snapshot {
-  /** Stable internal id (uuid); never changes. */
+  /** 稳定的内部 id（uuid），永不改变。 */
   id: string;
   /**
-   * Binding target: the user message entry id this snapshot belongs to.
-   * For the baseline snapshot it is a fixed sentinel; while an operation is
-   * running it temporarily holds the operation id until binding happens.
+   * 绑定目标：该快照所属的用户消息 entry id。
+   * baseline 快照使用固定哨兵值；操作进行中则暂时持有操作 id，
+   * 直到完成绑定。
    */
   key: string;
   files: Record<string, FileBackupRecord>;
@@ -35,9 +35,9 @@ export type RedoKind = "code" | "conversation" | "both";
 
 export interface RedoItem {
   type: RedoKind;
-  /** Snapshot key of the redo-point snapshot (code/both only). */
+  /** redo-point 快照的 key（仅 code/both）。 */
   restoreKey: string | null;
-  /** Leaf id before the undo navigation (conversation/both only). */
+  /** undo 导航前的 leaf id（仅 conversation/both）。 */
   oldLeafId: string | null;
   createdAt: string;
 }
@@ -60,17 +60,17 @@ export interface UndoConfig {
   exclude: string[];
   excludeDefaults: boolean;
   trackedTools: string[];
-  /** 0 = unlimited. */
+  /** 0 = 不限制。 */
   maxFileSizeMB: number;
-  /** Minimum 1. */
+  /** 最小 1。 */
   maxSnapshotsPerSession: number;
-  /** 0 = redo disabled. */
+  /** 0 = 禁用 redo。 */
   maxRedoStackSize: number;
-  /** 0 = automatic cleanup disabled. */
+  /** 0 = 禁用自动清理。 */
   cleanupPeriodDays: number;
-  /** Minimum 1. */
+  /** 最小 1。 */
   pickerLimit: number;
-  /** Reserved for v2 (tree integration); parsed but unused in v1. */
+  /** 为 v2 预留（tree 集成）；v1 中会解析但不使用。 */
   treeRestore: "ask" | "off";
   log: boolean;
 }
@@ -79,7 +79,7 @@ export interface RestoreStats {
   filesChanged: string[];
   insertions: number;
   deletions: number;
-  /** Paths skipped because they are symlinks / hard links. */
+  /** 因符号链接/硬链接而跳过的路径。 */
   skipped: string[];
 }
 
@@ -91,11 +91,11 @@ export interface RestoreFailure {
 export interface RestoreResult {
   changed: string[];
   skipped: string[];
-  /** Files compared and found already at target state (idempotent no-op). */
+  /** 比较后发现已处于目标状态（幂等无操作）的文件数。 */
   unchanged: number;
 }
 
-/** Minimal shape of a session entry used by the plugin. */
+/** 插件用到的会话条目最小结构。 */
 export interface BranchEntry {
   type: string;
   id: string;

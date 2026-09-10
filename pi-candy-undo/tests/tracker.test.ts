@@ -226,13 +226,13 @@ test("beginOperation detects same-size edits when mtimes collide", async () => {
     await h.tracker.beginOperation("leaf-1");
     h.tracker.finishOperation();
 
-    // Same size ("v0" -> "v1") and the same mtime as the backup: the tracker
-    // must still fall through to a content comparison and create a new version.
+    // 大小相同（"v0" -> "v1"）且与备份的 mtime 相同：跟踪器
+    // 仍必须继续做内容比较并创建新版本。
     await writeFile(file, "v1", "utf8");
     const original = h.store.state.originals["a.txt"];
     assert.ok(original?.backupFileName);
     const backupPath = path.join(h.paths.backupsDir, original.backupFileName);
-    // Force identical timestamps on both files so only content can differ.
+    // 强制两个文件的时间戳完全相同，这样只有内容可能不同。
     const stamp = new Date(Math.floor(Date.now() / 1000) * 1000);
     await utimes(file, stamp, stamp);
     await utimes(backupPath, stamp, stamp);

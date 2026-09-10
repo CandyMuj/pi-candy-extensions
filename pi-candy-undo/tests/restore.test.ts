@@ -35,7 +35,7 @@ async function makeHarness(): Promise<Harness> {
   return { root, workspace, deps, store };
 }
 
-/** Track a file and return the backup record for its current content. */
+/** 跟踪一个文件并返回其当前内容的备份记录。 */
 async function backup(h: Harness, storedPath: string, version = 1): Promise<FileBackupRecord> {
   return await createBackup({
     backupsDir: h.deps.paths.backupsDir,
@@ -58,7 +58,7 @@ test("computeStats reports changed files with line counts", async () => {
     h.store.state.originals["a.txt"] = record;
 
     await writeFile(path.join(h.workspace, "a.txt"), "one\nthree\nfour\n", "utf8");
-    // Restoring current -> target adds "two" and removes "three"/"four" (CC yk2 semantics).
+    // 从当前恢复到目标会新增 "two" 并删除 "three"/"four"（CC yk2 语义）。
     const stats = await computeStats(h.deps, target({ "a.txt": record }));
     assert.deepEqual(stats.filesChanged, ["a.txt"]);
     assert.equal(stats.insertions, 1);
@@ -172,7 +172,7 @@ test("restoreSnapshot falls back to the first-seen original", async () => {
     });
     appendSnapshot(h.store.state, target({ "a.txt": later }));
 
-    // Restore to an earlier snapshot that has no record for a.txt.
+    // 恢复到更早的、没有 a.txt 记录的快照。
     const result = await restoreSnapshot(h.deps, target({}));
     assert.deepEqual(result.changed, ["a.txt"]);
     assert.equal(await readFile(file, "utf8"), "v0");

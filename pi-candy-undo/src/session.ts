@@ -1,9 +1,8 @@
 /**
- * Per-session runtime: owns config, storage paths, state and tracker, and maps
- * pi events to tracking actions (docs/design.md §5).
+ * 每会话运行时：持有配置、存储路径、状态与跟踪器，并把 pi 事件映射为
+ * 跟踪动作（docs/design.md §5）。
  *
- * The class only depends on the narrow `SessionApi` interface so it can be
- * unit-tested without pi.
+ * 该类仅依赖窄接口 `SessionApi`，因此无需 pi 即可单元测试。
  */
 
 import { mkdir } from "node:fs/promises";
@@ -35,11 +34,11 @@ export interface SessionApi {
   getLeafId(): string | null;
   getEntry(id: string): BranchEntry | undefined;
   notify(message: string, type: "info" | "warning" | "error"): void;
-  /** Project-local settings are only honored for trusted projects. */
+  /** 项目本地设置仅在项目被信任时才生效。 */
   isProjectTrusted(): boolean;
 }
 
-/** Extra capabilities available only while running a command. */
+/** 仅在执行命令时可用的一组额外能力。 */
 export interface CommandApi extends SessionApi {
   select(title: string, options: string[]): Promise<string | undefined>;
   input(title: string, placeholder?: string): Promise<string | undefined>;
@@ -75,9 +74,9 @@ export class UndoSession {
   readonly platform: NodeJS.Platform;
   readonly sleep: ((ms: number) => Promise<void>) | undefined;
 
-  /** True when the plugin is active for this session. */
+  /** 本会话中插件是否处于启用状态。 */
   active: boolean;
-  /** Human-readable reason when `active` is false. */
+  /** `active` 为 false 时可读的原因说明。 */
   inactiveReason: string | undefined;
 
   private pendingPrompt: string | undefined;
@@ -139,7 +138,7 @@ export class UndoSession {
     this.api.notify(this.t(key, params), type);
   }
 
-  /** Load (or migrate) state and prepare the baseline snapshot. */
+  /** 加载（或迁移）状态并准备 baseline 快照。 */
   async start(event: { reason: string; previousSessionFile?: string }): Promise<void> {
     if (this.configWarnings.length > 0) {
       this.logger.log(`config warnings: ${this.configWarnings.join(" | ")}`);
@@ -192,7 +191,7 @@ export class UndoSession {
     }
     const previousCwd = await readSessionCwdFromFile(previousSessionFile);
     if (previousCwd !== undefined && !isSameOrInside(previousCwd, this.api.cwd, this.platform)) {
-      // Relative stored paths only make sense for the same working directory.
+      // 相对存储路径只在相同工作目录下才有意义。
       this.logger.log(`skip migration: cwd changed from ${previousCwd} to ${this.api.cwd}`);
       return;
     }
@@ -227,7 +226,7 @@ export class UndoSession {
       return;
     }
     if (source === "extension") {
-      // Extension-injected messages must not start a new undo operation.
+      // 扩展注入的消息不得开启新的撤销操作。
       this.pendingPrompt = undefined;
       this.skipNextOperation = true;
       return;
@@ -237,7 +236,7 @@ export class UndoSession {
       return;
     }
     this.pendingPrompt = text;
-    // A new real prompt invalidates the redo stack (docs §6).
+    // 新的真实 prompt 会使 redo 栈失效（docs §6）。
     if (this.store.state.redo.length > 0) {
       clearRedo(this.store.state);
       this.store.markDirty();
@@ -284,7 +283,7 @@ export class UndoSession {
     try {
       await this.tracker.trackToolCall(toolName, input);
     } catch (error) {
-      // Never block a tool because of undo bookkeeping (docs: tool_call is fail-safe).
+      // 绝不因为撤销簿记而阻塞工具（docs：tool_call 是故障安全路径）。
       this.logger.log(`track failed tool=${toolName} error=${String(error)}`);
     }
   }
@@ -293,7 +292,7 @@ export class UndoSession {
     await this.store.dispose();
   }
 
-  /** Remove every redo entry (used when the stack is invalidated). */
+  /** 清空全部 redo 记录（栈失效时使用）。 */
   clearRedoStack(): void {
     if (this.store.state.redo.length === 0) {
       return;
@@ -302,7 +301,7 @@ export class UndoSession {
     this.store.markDirty();
   }
 
-  /** Persist state after a mutation made outside the tracker. */
+  /** 在跟踪器之外修改状态后持久化。 */
   async persist(): Promise<void> {
     await writeStateFile(this.paths.stateFile, this.store.state);
   }

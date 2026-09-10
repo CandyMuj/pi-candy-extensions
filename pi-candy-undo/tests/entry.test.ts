@@ -1,6 +1,6 @@
 /**
- * Integration test for the pi entry point: verifies event wiring, the ctx
- * adapter and command registration without running pi.
+ * pi 入口的集成测试：在不运行 pi 的情况下验证事件接线、ctx 适配器
+ * 与命令注册。
  */
 
 import assert from "node:assert/strict";
@@ -96,7 +96,7 @@ test("entry point wires events, commands and performs an undo round trip", async
     await fire(state, ctx, "session_start", { reason: "startup" });
     assert.equal(state.notices.length, 0, "no config warnings");
 
-    // Operation 1
+    // 操作 1
     const file = path.join(workspace, "a.txt");
     await writeTextFile(file, "v0");
     await fire(state, ctx, "input", { text: "first", source: "interactive", streamingBehavior: undefined });
@@ -110,13 +110,13 @@ test("entry point wires events, commands and performs an undo round trip", async
     await fire(state, ctx, "turn_end", {});
     await fire(state, ctx, "agent_settled", {});
 
-    // Undo via the registered command
+    // 通过注册的命令执行 undo
     state.selectQueue.push(selectContaining("first"));
     state.selectQueue.push(selectStartsWith("Restore code ("));
     await state.commands.get("undo")?.handler("", ctx);
     assert.equal(await readFile(file, "utf8"), "v0");
 
-    // Redo brings the change back
+    // redo 把改动找回来
     await state.commands.get("redo")?.handler("", ctx);
     assert.equal(await readFile(file, "utf8"), "v1");
 
@@ -141,7 +141,7 @@ test("entry point disables itself in non-interactive mode", async () => {
     await fire(state, ctx, "session_start", { reason: "startup" });
     await fire(state, ctx, "tool_call", { toolName: "write", input: { path: "a.txt" } });
     await state.commands.get("undo")?.handler("", ctx);
-    // Nothing is tracked and no storage directory is created without a UI.
+    // 没有 UI 时不跟踪，也不会创建存储目录。
     assert.deepEqual(state.notices, []);
     assert.equal(await pathExists(path.join(root, "storage", "entry-session")), false);
   } finally {

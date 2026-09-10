@@ -1,7 +1,7 @@
 /**
- * Filesystem layer (docs/design.md §4, §8).
+ * 文件系统层（docs/design.md §4、§8）。
  *
- * Layout:
+ * 布局：
  *   <storageDir>/<sessionId>/state.json
  *   <storageDir>/<sessionId>/backups/<sha256(storedPath)[:16]>@v<N>
  *   <storageDir>/undo.log
@@ -129,8 +129,8 @@ export interface CreateBackupOptions {
 }
 
 /**
- * Copy the current content of `absolutePath` into an immutable backup file.
- * Returns a record with `backupFileName: null` when the file does not exist.
+ * 把 `absolutePath` 的当前内容复制为不可变备份文件。
+ * 文件不存在时返回 `backupFileName: null` 的记录。
  */
 export async function createBackup(options: CreateBackupOptions): Promise<FileBackupRecord> {
   const backupTime = (options.now ?? new Date()).toISOString();
@@ -172,7 +172,7 @@ export async function listBackupFiles(backupsDir: string): Promise<string[]> {
   }
 }
 
-/** Delete backup files that are no longer referenced by any snapshot or original. */
+/** 删除不再被任何快照或 originals 引用的备份文件。 */
 export async function deleteUnreferencedBackups(
   backupsDir: string,
   referenced: ReadonlySet<string>,
@@ -198,7 +198,7 @@ export interface CleanupResult {
   errors: string[];
 }
 
-/** Remove session directories whose mtime is older than maxAgeMs (docs §8). */
+/** 删除 mtime 早于 maxAgeMs 的会话目录（docs §8）。 */
 export async function cleanupExpiredSessions(
   root: string,
   maxAgeMs: number,
@@ -242,8 +242,8 @@ export interface MigrationResult {
 }
 
 /**
- * Copy state + hard-link backups from a previous session directory (fork/clone).
- * Backup files are immutable, so hard links are safe; copy is the fallback.
+ * 从上一个会话目录复制状态并硬链接备份（fork/clone）。
+ * 备份不可变，因此硬链接是安全的；复制作为降级方案。
  */
 export async function migrateSessionData(
   previousSessionDir: string,
@@ -295,7 +295,7 @@ export async function migrateSessionData(
   return result;
 }
 
-/** Read the session id from the header line of a session JSONL file. */
+/** 从会话 JSONL 文件的首行读取会话 id。 */
 export async function readSessionIdFromFile(sessionFile: string): Promise<string | undefined> {
   try {
     const content = await readFile(sessionFile, "utf8");
@@ -313,7 +313,7 @@ export async function readSessionIdFromFile(sessionFile: string): Promise<string
   }
 }
 
-/** Read the cwd recorded in a session header (used to guard fork migration). */
+/** 读取会话头中记录的 cwd（用于守卫 fork 迁移）。 */
 export async function readSessionCwdFromFile(sessionFile: string): Promise<string | undefined> {
   try {
     const content = await readFile(sessionFile, "utf8");

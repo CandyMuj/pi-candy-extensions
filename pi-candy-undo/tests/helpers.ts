@@ -1,5 +1,5 @@
 /**
- * Test helpers: temp dirs, a fake pi session API, and fake branch entries.
+ * 测试辅助：临时目录、假的 pi 会话 API 与假的 branch 条目。
  */
 
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -28,12 +28,12 @@ export async function writeTextFile(file: string, content: string): Promise<void
 
 export type SelectAnswer = (options: string[]) => string | undefined;
 
-/** Pick the first option containing the given substring. */
+/** 选取第一个包含给定子串的选项。 */
 export function selectContaining(substring: string): SelectAnswer {
   return (options) => options.find((option) => option.includes(substring));
 }
 
-/** Pick the first option starting with the given prefix (menu labels may share words). */
+/** 选取第一个以给定前缀开头的选项（菜单文案可能共享词语）。 */
 export function selectStartsWith(prefix: string): SelectAnswer {
   return (options) => options.find((option) => option.startsWith(prefix));
 }

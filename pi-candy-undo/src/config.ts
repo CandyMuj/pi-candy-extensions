@@ -1,8 +1,7 @@
 /**
- * Configuration loading (docs/design.md §7).
+ * 配置加载（docs/design.md §7）。
  *
- * Single source of truth: settings.json (global + project, project overrides
- * global). No environment variables are read.
+ * 唯一来源：settings.json（全局 + 项目，项目覆盖全局）。不读取任何环境变量。
  */
 
 import { readFileSync } from "node:fs";
@@ -46,7 +45,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Deep merge where project values override base values; arrays are replaced. */
+/** 深合并：项目值覆盖基础值；数组整体替换。 */
 export function mergeSettingsDeep(
   base: Record<string, unknown>,
   override: Record<string, unknown>,
@@ -174,12 +173,12 @@ export function parseUndoConfig(raw: unknown, base: UndoConfig = DEFAULT_CONFIG)
 export interface LoadConfigOptions {
   globalSettingsFile: string;
   projectSettingsFile: string;
-  /** Injectable for tests; defaults to fs.readFileSync. */
+  /** 可注入以便测试；默认使用 fs.readFileSync。 */
   readText?: (file: string) => string | undefined;
   home?: string;
 }
 
-/** Load and merge global + project settings, then validate the candyUndo block. */
+/** 加载并合并全局 + 项目设置，然后校验 candyUndo 配置块。 */
 export function loadConfig(options: LoadConfigOptions): ParsedConfig {
   const readText = options.readText ?? ((file: string): string | undefined => {
     try {

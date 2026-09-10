@@ -1,10 +1,10 @@
 /**
- * pi-candy-undo entry point.
+ * pi-candy-undo 入口。
  *
- * Wires pi events and commands to the session runtime. All logic lives in
- * `src/` so it can be unit-tested without pi.
+ * 把 pi 事件与命令接线到会话运行时；全部逻辑位于 `src/`，因此无需 pi
+ * 即可单元测试。
  *
- * See docs/design.md for the full design.
+ * 完整设计见 docs/design.md。
  */
 
 import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -17,7 +17,7 @@ import type { BranchEntry } from "../src/types.ts";
 function settingsFiles(ctx: ExtensionContext): { globalSettingsFile: string; projectSettingsFile: string } {
   return {
     globalSettingsFile: path.join(getAgentDir(), "settings.json"),
-    // Project-local configuration is only honored for trusted projects (official guidance).
+    // 项目本地配置仅在项目被信任时才生效（官方指引）。
     projectSettingsFile: ctx.isProjectTrusted()
       ? path.join(ctx.cwd, CONFIG_DIR_NAME, "settings.json")
       : "",

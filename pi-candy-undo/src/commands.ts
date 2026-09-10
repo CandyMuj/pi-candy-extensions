@@ -1,5 +1,5 @@
 /**
- * /undo and /redo command flows (docs/design.md §6).
+ * /undo 与 /redo 的命令流程（docs/design.md §6）。
  */
 
 import { collectReferencedBackups, peekRedo, popRedo, pushRedo } from "./state.ts";
@@ -33,7 +33,7 @@ function contentToText(content: unknown): string {
   return "";
 }
 
-/** User messages on the branch, newest first, limited by pickerLimit. */
+/** 分支上的用户消息，最新的在前，受 pickerLimit 限制。 */
 export function collectUserMessages(branch: readonly BranchEntry[], limit: number): UserMessage[] {
   const messages: UserMessage[] = [];
   for (const entry of branch) {
@@ -45,7 +45,7 @@ export function collectUserMessages(branch: readonly BranchEntry[], limit: numbe
   return limit > 0 ? messages.slice(0, limit) : messages;
 }
 
-/** Snapshot for a user message: bound snapshot, else nearest earlier, else baseline. */
+/** 用户消息对应的快照：优先绑定的快照，否则最近更早的快照，最后回落到 baseline。 */
 export function resolveTargetSnapshot(
   snapshots: readonly Snapshot[],
   branch: readonly BranchEntry[],
@@ -120,7 +120,7 @@ function pushRedoItem(
 
 type Action = "both" | "conversation" | "code" | "summarize" | "summarize-custom" | "nevermind";
 
-/** Run async work over items with a bounded concurrency. */
+/** 以受限并发对一组元素执行异步任务。 */
 async function mapLimit<T, R>(
   items: readonly T[],
   limit: number,
@@ -248,7 +248,7 @@ export async function runUndo(session: UndoSession, cmd: CommandApi): Promise<vo
         `undo restore target=${target.id} changed=${result.changed.length} unchanged=${result.unchanged} skipped=${result.skipped.length}`,
       );
     } catch (error) {
-      // Drop the unused redo-point snapshot and abort before navigation.
+      // 丢弃未使用的 redo-point 快照，并在导航前中止。
       session.store.state.snapshots = session.store.state.snapshots.filter(
         (snapshot) => snapshot.id !== redoPoint.id,
       );

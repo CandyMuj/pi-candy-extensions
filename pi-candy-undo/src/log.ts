@@ -1,8 +1,8 @@
 /**
- * Debug logging (docs/design.md §4, §7 `log`).
+ * 调试日志（docs/design.md §4、§7 `log`）。
  *
- * Writes to `<storageDir>/undo.log` when enabled. Logging must never throw and
- * never block the agent: failures are silently ignored.
+ * 启用时写入 `<storageDir>/undo.log`。日志不允许抛错，也不允许阻塞
+ * agent：失败会被静默忽略。
  */
 
 import { appendFile, mkdir } from "node:fs/promises";

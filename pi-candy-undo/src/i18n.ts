@@ -1,6 +1,6 @@
 /**
- * Minimal i18n for user-facing strings (docs/design.md §7 `language`).
- * Supported: zh (default) and en. Adding a language = add a column here.
+ * 面向用户文案的最小 i18n（docs/design.md §7 `language`）。
+ * 支持 zh（默认）与 en；新增语言 = 在此增加一列。
  */
 
 import type { Language } from "./types.ts";

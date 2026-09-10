@@ -1,5 +1,5 @@
 /**
- * In-memory state operations and debounced persistence (docs/design.md §3, §4).
+ * 内存状态操作与防抖持久化（docs/design.md §3、§4）。
  */
 
 import { randomUUID } from "node:crypto";
@@ -30,7 +30,7 @@ export function createBaselineSnapshot(now: Date = new Date()): Snapshot {
   };
 }
 
-/** Latest record seen for a file: newest snapshot containing it, else originals. */
+/** 文件最近一次记录：包含它的最新快照，否则为 originals。 */
 export function latestRecordFor(state: UndoState, storedPath: string): FileBackupRecord | undefined {
   for (let index = state.snapshots.length - 1; index >= 0; index -= 1) {
     const snapshot = state.snapshots[index];
@@ -46,7 +46,7 @@ export function appendSnapshot(state: UndoState, snapshot: Snapshot): void {
   state.snapshots.push(snapshot);
 }
 
-/** Snapshot keys referenced by the redo stack; these must survive cap eviction. */
+/** redo 栈引用的快照 key；这些快照必须免于 cap 淘汰。 */
 export function redoProtectedKeys(state: UndoState): Set<string> {
   const keys = new Set<string>();
   for (const item of state.redo) {
@@ -58,9 +58,9 @@ export function redoProtectedKeys(state: UndoState): Set<string> {
 }
 
 /**
- * Enforce `maxSnapshotsPerSession` by dropping the oldest snapshots.
- * The baseline is never evicted; snapshots referenced by the redo stack are
- * skipped (docs §6/§8). Returns the ids of removed snapshots.
+ * 通过丢弃最旧的快照来执行 `maxSnapshotsPerSession` 上限。
+ * baseline 永不淘汰；redo 栈引用的快照跳过（docs §6/§8）。
+ * 返回被移除快照的 id。
  */
 export function enforceSnapshotCap(state: UndoState, max: number, protectedKeys: ReadonlySet<string>): string[] {
   const removed: string[] = [];
@@ -104,7 +104,7 @@ export function popRedo(state: UndoState): RedoItem | undefined {
   return state.redo.pop();
 }
 
-/** All backup file names still referenced by snapshots or originals. */
+/** 仍被任何快照或 originals 引用的全部备份文件名。 */
 export function collectReferencedBackups(state: UndoState): Set<string> {
   const referenced = new Set<string>();
   const add = (record: FileBackupRecord | undefined): void => {
@@ -130,7 +130,7 @@ export interface StateStoreOptions {
   onError?: (error: unknown) => void;
 }
 
-/** Owns the session state and persists it with debouncing + atomic writes. */
+/** 持有会话状态，并以防抖 + 原子写方式持久化。 */
 export class StateStore {
   state: UndoState;
 
@@ -157,7 +157,7 @@ export class StateStore {
       this.timer = undefined;
       void this.flush();
     }, this.options.debounceMs ?? DEFAULT_STATE_DEBOUNCE_MS);
-    // Do not keep the process alive because of a pending flush.
+    // 不要因为待落盘的写入而让进程保持存活。
     this.timer.unref?.();
   }
 
