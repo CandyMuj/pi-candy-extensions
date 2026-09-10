@@ -46,14 +46,12 @@ export interface FakeApiOptions {
   cwd: string;
   sessionId?: string;
   hasUI?: boolean;
-  mode?: string;
 }
 
 export class FakeSession {
   readonly cwd: string;
   readonly sessionId: string;
   readonly hasUI: boolean;
-  readonly mode: string;
   branch: BranchEntry[] = [];
   leafId: string | null = null;
   notices: Array<{ message: string; type: string }> = [];
@@ -70,7 +68,6 @@ export class FakeSession {
     this.cwd = options.cwd;
     this.sessionId = options.sessionId ?? "test-session";
     this.hasUI = options.hasUI ?? true;
-    this.mode = options.mode ?? "tui";
   }
 
   queueSelect(answer: SelectAnswer): void {
@@ -110,8 +107,6 @@ export class FakeSession {
       sessionId: this.sessionId,
       cwd: this.cwd,
       hasUI: this.hasUI,
-      mode: this.mode,
-      getSessionFile: () => undefined,
       getBranch: () => this.branch,
       getLeafId: () => this.leafId,
       getEntry: (id: string) => this.branch.find((entry) => entry.id === id),

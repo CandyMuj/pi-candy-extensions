@@ -34,7 +34,6 @@ function createStub(cwd: string): { pi: unknown; state: StubState; ctx: unknown 
   };
   const sessionManager = {
     getSessionId: () => "entry-session",
-    getSessionFile: () => undefined,
     getBranch: () => state.branch,
     getLeafId: () => state.leafId,
     getEntry: (id: string) => state.branch.find((entry) => entry.id === id),
@@ -50,7 +49,6 @@ function createStub(cwd: string): { pi: unknown; state: StubState; ctx: unknown 
   const ctx = {
     cwd,
     hasUI: true,
-    mode: "tui",
     sessionManager,
     ui,
     navigateTree: async (targetId: string) => {

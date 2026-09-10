@@ -32,7 +32,6 @@ export const DEFAULT_CONFIG: UndoConfig = {
   maxRedoStackSize: 50,
   cleanupPeriodDays: 30,
   pickerLimit: 100,
-  treeRestore: "off",
   log: false,
 };
 
@@ -155,15 +154,6 @@ export function parseUndoConfig(raw: unknown, base: UndoConfig = DEFAULT_CONFIG)
       config.trackedTools = trackedTools.map((item) => item.trim());
     } else {
       warn("trackedTools", trackedTools, "non-empty array of tool names");
-    }
-  }
-
-  const treeRestore = raw["treeRestore"];
-  if (treeRestore !== undefined) {
-    if (treeRestore === "ask" || treeRestore === "off") {
-      config.treeRestore = treeRestore;
-    } else {
-      warn("treeRestore", treeRestore, '"ask" or "off"');
     }
   }
 

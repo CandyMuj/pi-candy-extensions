@@ -66,7 +66,6 @@ test("parseUndoConfig rejects invalid values and warns", () => {
     maxRedoStackSize: -2,
     cleanupPeriodDays: -1,
     pickerLimit: 0,
-    treeRestore: "always",
     log: 1,
   });
   assert.equal(config.enabled, DEFAULT_CONFIG.enabled);
@@ -79,9 +78,8 @@ test("parseUndoConfig rejects invalid values and warns", () => {
   assert.equal(config.maxRedoStackSize, 50);
   assert.equal(config.cleanupPeriodDays, 30);
   assert.equal(config.pickerLimit, 100);
-  assert.equal(config.treeRestore, "off");
   assert.equal(config.log, false);
-  assert.equal(warnings.length, 12);
+  assert.equal(warnings.length, 11);
 });
 
 test("mergeSettingsDeep merges objects and replaces arrays", () => {

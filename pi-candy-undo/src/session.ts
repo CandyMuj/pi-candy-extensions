@@ -28,8 +28,6 @@ export interface SessionApi {
   sessionId: string;
   cwd: string;
   hasUI: boolean;
-  mode: string;
-  getSessionFile(): string | undefined;
   getBranch(): BranchEntry[];
   getLeafId(): string | null;
   getEntry(id: string): BranchEntry | undefined;
@@ -138,6 +136,13 @@ export class UndoSession {
     this.api.notify(this.t(key, params), type);
   }
 
+  /** 标记本会话未启用，并记录原因供排查。 */
+  private markInactive(reason: string): void {
+    this.active = false;
+    this.inactiveReason = reason;
+    this.logger.log(`inactive: ${reason}`);
+  }
+
   /** 加载（或迁移）状态并准备 baseline 快照。 */
   async start(event: { reason: string; previousSessionFile?: string }): Promise<void> {
     if (this.configWarnings.length > 0) {
@@ -145,27 +150,23 @@ export class UndoSession {
       this.notifyKey("notify.configWarning", { details: this.configWarnings.join("; ") }, "warning");
     }
     if (!this.config.enabled) {
-      this.active = false;
-      this.inactiveReason = "disabled";
+      this.markInactive("disabled");
       return;
     }
     if (isSameOrInside(this.api.cwd, this.paths.root, this.platform)) {
-      this.active = false;
-      this.inactiveReason = "storage-inside-workspace";
+      this.markInactive("storage-inside-workspace");
       this.notifyKey("notify.storageError", { error: this.paths.root }, "error");
       return;
     }
     if (!this.api.hasUI) {
-      this.active = false;
-      this.inactiveReason = "no-ui";
+      this.markInactive("no-ui");
       return;
     }
 
     try {
       await mkdir(this.paths.backupsDir, { recursive: true });
     } catch (error) {
-      this.active = false;
-      this.inactiveReason = `storage-error: ${String(error)}`;
+      this.markInactive(`storage-error: ${String(error)}`);
       this.notifyKey("notify.storageError", { error: String(error) }, "error");
       return;
     }

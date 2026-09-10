@@ -29,8 +29,6 @@ function createEventApi(ctx: ExtensionContext): SessionApi {
     sessionId: ctx.sessionManager.getSessionId(),
     cwd: ctx.cwd,
     hasUI: ctx.hasUI,
-    mode: ctx.mode,
-    getSessionFile: () => ctx.sessionManager.getSessionFile(),
     getBranch: () => ctx.sessionManager.getBranch() as unknown as BranchEntry[],
     getLeafId: () => ctx.sessionManager.getLeafId(),
     getEntry: (id: string) => ctx.sessionManager.getEntry(id) as unknown as BranchEntry | undefined,

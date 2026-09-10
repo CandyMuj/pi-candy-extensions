@@ -352,3 +352,20 @@ test("extension-injected input does not start an operation", async () => {
     await removeTempDir(h.root);
   }
 });
+
+test("sessions without a UI are marked inactive as no-ui", async () => {
+  const h = await makeHarness();
+  try {
+    const fake = new FakeSession({ cwd: h.workspace, hasUI: false });
+    const session = UndoSession.create({
+      api: fake.api,
+      config: makeConfig({ storageDir: path.join(h.root, "storage-2") }),
+      sleep: async () => {},
+    });
+    await session.start({ reason: "startup" });
+    assert.equal(session.active, false);
+    assert.equal(session.inactiveReason, "no-ui");
+  } finally {
+    await removeTempDir(h.root);
+  }
+});

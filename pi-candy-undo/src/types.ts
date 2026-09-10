@@ -70,8 +70,6 @@ export interface UndoConfig {
   cleanupPeriodDays: number;
   /** 最小 1。 */
   pickerLimit: number;
-  /** 为 v2 预留（tree 集成）；v1 中会解析但不使用。 */
-  treeRestore: "ask" | "off";
   log: boolean;
 }
 
