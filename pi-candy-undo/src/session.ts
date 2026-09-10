@@ -32,8 +32,6 @@ export interface SessionApi {
   getLeafId(): string | null;
   getEntry(id: string): BranchEntry | undefined;
   notify(message: string, type: "info" | "warning" | "error"): void;
-  /** 项目本地设置仅在项目被信任时才生效。 */
-  isProjectTrusted(): boolean;
 }
 
 /** 仅在执行命令时可用的一组额外能力。 */

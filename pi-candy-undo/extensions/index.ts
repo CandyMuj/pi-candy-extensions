@@ -33,7 +33,6 @@ function createEventApi(ctx: ExtensionContext): SessionApi {
     getLeafId: () => ctx.sessionManager.getLeafId(),
     getEntry: (id: string) => ctx.sessionManager.getEntry(id) as unknown as BranchEntry | undefined,
     notify: (message, type) => ctx.ui.notify(message, type),
-    isProjectTrusted: () => ctx.isProjectTrusted(),
   };
 }
 

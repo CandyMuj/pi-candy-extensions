@@ -57,7 +57,6 @@ export class FakeSession {
   notices: Array<{ message: string; type: string }> = [];
   navigations: Array<{ targetId: string; options: { summarize: boolean; customInstructions?: string } }> = [];
   navigateCancelled = false;
-  projectTrusted = true;
   selectCalls: string[][] = [];
   inputCalls: string[] = [];
 
@@ -111,7 +110,6 @@ export class FakeSession {
       getLeafId: () => this.leafId,
       getEntry: (id: string) => this.branch.find((entry) => entry.id === id),
       notify: (message, type) => this.notices.push({ message, type }),
-      isProjectTrusted: () => this.projectTrusted,
       select: async (title, options) => {
         this.selectCalls.push([title, ...options]);
         const answer = this.selectQueue.shift();
