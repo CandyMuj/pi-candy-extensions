@@ -49,7 +49,9 @@ pi 的文件级撤销/重做插件，对标 Claude Code 的 `/rewind`：**按用
 
 ## 配置
 
-唯一配置入口是 pi 的 `settings.json`（全局 `~/.pi/agent/settings.json` + 项目 `.pi/settings.json`，项目覆盖全局）。不读取任何环境变量。
+唯一配置入口是 pi 的 `settings.json`（全局 `~/.pi/agent/settings.json` + 项目 `.pi/settings.json`，**项目配置仅在项目被信任时读取**）。不读取任何环境变量。
+
+两处配置按**字段级深合并**：项目只需写要覆盖的字段，未写字段沿用全局，均为未写时使用内置默认值；**数组整体替换**（不追加、不合并）；`null` 视为未设置。另注意 `exclude` 的两层语义 —— 全局与项目之间是“替换”，而内置默认值与你的 `exclude` 之间是“并集”（由 `excludeDefaults` 控制）。
 
 ```json
 {

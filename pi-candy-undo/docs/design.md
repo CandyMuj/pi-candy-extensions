@@ -226,7 +226,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 
 ## 7. 配置项（settings.json）
 
-**配置来源与合并规则**：全局 `~/.pi/agent/settings.json`（等价 `getAgentDir()/settings.json`）+ 项目 `.pi/settings.json`（等价 `<cwd>/<CONFIG_DIR_NAME>/settings.json`）（深合并，项目覆盖全局；**项目设置仅在项目被信任时读取**，见 `ctx.isProjectTrusted()`）。读取时机：`session_start`，本会话内不热更新。匹配引擎：`minimatch`（声明为插件依赖）。**唯一配置入口为 settings.json，不接受任何环境变量配置。**
+**配置来源与合并规则**：全局 `~/.pi/agent/settings.json`（等价 `getAgentDir()/settings.json`）+ 项目 `.pi/settings.json`（等价 `<cwd>/<CONFIG_DIR_NAME>/settings.json`），**字段级深合并**：项目只需写要覆盖的字段，未写字段沿用全局，均为未写时使用内置默认值；**数组整体替换**（不追加、不合并）；`null` 视为未设置；非法值回落内置默认值并产生警告（**项目设置仅在项目被信任时读取**，见 `ctx.isProjectTrusted()`）。读取时机：`session_start`，本会话内不热更新。匹配引擎：`minimatch`（声明为插件依赖）。**唯一配置入口为 settings.json，不接受任何环境变量配置。**
 
 **完整配置示例（全部字段 + 默认值）**：
 
