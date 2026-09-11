@@ -46,6 +46,8 @@ pi -e .                                 # 临时试用，不写入配置
 }
 ```
 
+> 主题中的图标需要 Nerd Fonts 才能正常显示（否则会出现方块或乱码）：字体资源（0xProto、Sarasa Term SC Nerd）见仓库 [Releases](https://github.com/CandyMuj/pi-candy-extensions/releases/tag/fonts-v1)。
+
 ## 调色板
 
 每个主题使用其色调对应的 Selenized 配色方案（Gogh 终端配置中的 16 色 ANSI 配色，
