@@ -250,6 +250,11 @@ export async function generateTitle(
   extra?: string,
 ): Promise<{ title: string; mode: "llm" | "local" }> {
   const samples = extractSamples(ctx.sessionManager?.getEntries() ?? [], config.sampleChars);
+  // 采样全空（空会话/提取不到文本）：不调模型
+  // 否则模型只能拿标题指令硬编一个像样的标题（实测 deepseek 会产出无关主题）
+  if (!samples.firstUser && !samples.firstAssistant && !samples.lastUser && !samples.lastAssistant) {
+    return { title: "", mode: "local" };
+  }
   const prompt = buildPrompt(samples, config.maxLength, extra);
 
   if (config.mode === "llm") {
