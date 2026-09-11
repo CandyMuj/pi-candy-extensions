@@ -82,6 +82,7 @@ export class FakeSession {
       type: "message",
       id,
       parentId,
+      timestamp: new Date().toISOString(),
       message: { role: "user", content: text },
     };
     this.branch.push(entry);
@@ -94,6 +95,7 @@ export class FakeSession {
       type: "message",
       id,
       parentId,
+      timestamp: new Date().toISOString(),
       message: { role: "assistant", content: "ok" },
     };
     this.branch.push(entry);

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
-import { collectUserMessages, resolveTargetSnapshot, runRedo, runUndo } from "../src/commands.ts";
+import { collectUserMessages, formatRelativeTime, resolveTargetSnapshot, runRedo, runUndo } from "../src/commands.ts";
+import { createTranslator } from "../src/i18n.ts";
 import { UndoSession } from "../src/session.ts";
 import type { Snapshot } from "../src/types.ts";
 import {
@@ -365,6 +366,51 @@ test("sessions without a UI are marked inactive as no-ui", async () => {
     await session.start({ reason: "startup" });
     assert.equal(session.active, false);
     assert.equal(session.inactiveReason, "no-ui");
+  } finally {
+    await removeTempDir(h.root);
+  }
+});
+
+test("formatRelativeTime covers thresholds and invalid input", () => {
+  const now = new Date("2026-01-10T12:00:00.000Z");
+  const zh = createTranslator("zh");
+  const en = createTranslator("en");
+  const rel = (iso: string | undefined, t = zh) => formatRelativeTime(iso, now, t);
+
+  assert.equal(rel(undefined), undefined);
+  assert.equal(rel("not-a-date"), undefined);
+  assert.equal(rel("2026-01-10T11:59:30.000Z"), "刚刚");
+  assert.equal(rel("2026-01-10T11:59:00.000Z"), "1 分钟前");
+  assert.equal(rel("2026-01-10T11:30:00.000Z"), "30 分钟前");
+  assert.equal(rel("2026-01-10T11:00:00.000Z"), "1 小时前");
+  assert.equal(rel("2026-01-10T09:00:00.000Z"), "3 小时前");
+  assert.equal(rel("2026-01-08T12:00:00.000Z"), "2 天前");
+  assert.equal(rel("2026-01-10T11:30:00.000Z", en), "30 min ago");
+  // 未来时间（时钟漂移）按"刚刚"处理
+  assert.equal(rel("2026-01-10T12:05:00.000Z"), "刚刚");
+
+  // 超过 30 天改用本地日期
+  const old = new Date("2025-12-01T12:00:00.000Z");
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const expectedDate = `${old.getFullYear()}-${pad(old.getMonth() + 1)}-${pad(old.getDate())}`;
+  assert.equal(rel(old.toISOString()), expectedDate);
+});
+
+test("action menu title shows the selected message and relative time", async () => {
+  const h = await makeHarness();
+  try {
+    await writeTextFile(path.join(h.workspace, "a.txt"), "v0");
+    await runOperation(h, { id: "u1", prompt: "refactor auth module", file: "a.txt", after: "v1" });
+
+    h.fake.queueSelect(selectContaining("refactor auth"));
+    h.fake.queueSelect(selectContaining("Never mind"));
+    await runUndo(h.session, h.fake.api);
+
+    const actionTitle = h.fake.selectCalls[1]?.[0] ?? "";
+    assert.match(actionTitle, /Choose what to restore/);
+    assert.match(actionTitle, /refactor auth module/);
+    assert.match(actionTitle, /just now/);
+    assert.match(actionTitle, /Rewinding does not affect files edited manually or via bash/);
   } finally {
     await removeTempDir(h.root);
   }

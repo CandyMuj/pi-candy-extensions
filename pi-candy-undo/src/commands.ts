@@ -5,6 +5,7 @@
 import { collectReferencedBackups, peekRedo, popRedo, pushRedo } from "./state.ts";
 import { deleteUnreferencedBackups } from "./storage.ts";
 import { computeStats, RestoreError, restoreSnapshot } from "./restore.ts";
+import type { Translator } from "./i18n.ts";
 import type { CommandApi, UndoSession } from "./session.ts";
 import type { BranchEntry, RedoItem, RestoreStats, Snapshot } from "./types.ts";
 
@@ -78,6 +79,37 @@ function truncate(text: string, max: number): string {
   return singleLine.length > max ? `${singleLine.slice(0, max - 1)}…` : singleLine;
 }
 
+/** 相对时间描述；无法解析时间戳时返回 undefined（调用方只展示消息本身）。 */
+export function formatRelativeTime(iso: string | undefined, now: Date, t: Translator): string | undefined {
+  if (!iso) {
+    return undefined;
+  }
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) {
+    return undefined;
+  }
+  const seconds = Math.max(0, Math.round((now.getTime() - then) / 1000));
+  if (seconds < 60) {
+    return t("time.justNow");
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return t("time.minutesAgo", { n: minutes });
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return t("time.hoursAgo", { n: hours });
+  }
+  const days = Math.floor(hours / 24);
+  if (days < 30) {
+    return t("time.daysAgo", { n: days });
+  }
+  // 超过 30 天改用本地日期，相对描述已无参考价值。
+  const date = new Date(then);
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function formatStats(session: UndoSession, stats: RestoreStats): string {
   if (stats.filesChanged.length === 0) {
     return session.t("picker.noChanges");
@@ -119,6 +151,18 @@ function pushRedoItem(
 }
 
 type Action = "both" | "conversation" | "code" | "summarize" | "summarize-custom" | "nevermind";
+
+/** 菜单标题：操作标题 + 所选消息（时间单独一行，避免长消息挤出时间）+ 手动修改提示。 */
+export function buildActionTitle(session: UndoSession, message: UserMessage, now: Date = new Date()): string {
+  const preview = truncate(message.text, 48) || session.t("picker.emptyMessage");
+  const when = formatRelativeTime(message.entry.timestamp, now, session.t);
+  const lines = [session.t("action.title"), session.t("action.selectedMessage", { preview })];
+  if (when) {
+    lines.push(session.t("action.messageTime", { when }));
+  }
+  lines.push(session.t("note.manualEdits"));
+  return lines.join("\n");
+}
 
 /** 以受限并发对一组元素执行异步任务。 */
 async function mapLimit<T, R>(
@@ -220,7 +264,7 @@ export async function runUndo(session: UndoSession, cmd: CommandApi): Promise<vo
   }
 
   const chosen = await cmd.select(
-    `${session.t("action.title")}\n${session.t("note.manualEdits")}`,
+    buildActionTitle(session, message),
     actions.map((item) => item.label),
   );
   if (chosen === undefined) {

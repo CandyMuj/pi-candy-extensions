@@ -14,6 +14,10 @@ export const MESSAGES = {
     zh: "无文件改动",
     en: "No code changes",
   },
+  "picker.emptyMessage": {
+    zh: "（无文本内容）",
+    en: "(no text content)",
+  },
   "picker.filesChanged": {
     zh: "{files} 个文件",
     en: "{files} file(s)",
@@ -27,8 +31,32 @@ export const MESSAGES = {
     en: "{count} link(s) skipped",
   },
   "action.title": {
-    zh: "选择回退方式",
-    en: "Choose what to restore",
+    zh: "选择回退方式\n",
+    en: "Choose what to restore\n",
+  },
+  "action.selectedMessage": {
+    zh: "│ 「{preview}」",
+    en: "│ \"{preview}\"",
+  },
+  "action.messageTime": {
+    zh: "│ （{when}）",
+    en: "│ ({when})",
+  },
+  "time.justNow": {
+    zh: "刚刚",
+    en: "just now",
+  },
+  "time.minutesAgo": {
+    zh: "{n} 分钟前",
+    en: "{n} min ago",
+  },
+  "time.hoursAgo": {
+    zh: "{n} 小时前",
+    en: "{n} h ago",
+  },
+  "time.daysAgo": {
+    zh: "{n} 天前",
+    en: "{n} d ago",
   },
   "action.both": {
     zh: "恢复代码和对话",
@@ -143,8 +171,8 @@ export const MESSAGES = {
     en: "Skipped backup ({error}): {path}",
   },
   "note.manualEdits": {
-    zh: "💡 回退不会影响手动修改或通过 bash 修改的文件",
-    en: "💡 Rewinding does not affect files edited manually or via bash",
+    zh: "\n💡 回退不会影响手动修改或通过 bash 修改的文件",
+    en: "\n💡 Rewinding does not affect files edited manually or via bash",
   },
 } as const;
 

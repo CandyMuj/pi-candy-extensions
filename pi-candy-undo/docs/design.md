@@ -179,6 +179,9 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
      有文件改动：  1. Restore code and conversation  2. Restore conversation
                    3. Restore code  4. Summarize  5. Summarize with custom prompt  6. Never mind
      无文件改动：  1. Restore conversation  2. Summarize  3. Summarize with custom prompt  4. Never mind
+   菜单标题：`操作标题` / `空行` / `│ 「所选消息预览」` / `│ （相对时间）` / `空行` / `💡 手动修改提示`
+   （中间两行为竖线引用块；时间单独一行，避免长消息挤出时间；超过 30 天显示本地日期；
+   无时间戳时省略时间行；无文本时显示占位符；空行与 💡 图标随 `action.title` / `note.manualEdits` 文案定义在语言包中，便于按语言调整）
 7. 执行：
    - code（或 both）：先建 redo-point 快照（当前 trackedFiles 状态，用于 /redo）
      → 恢复文件到 S_M（逐文件 fk2 比较 + Windows 锁重试 3 次）

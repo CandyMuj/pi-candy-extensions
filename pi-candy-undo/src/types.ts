@@ -98,6 +98,8 @@ export interface BranchEntry {
   type: string;
   id: string;
   parentId: string | null;
+  /** ISO 时间戳（pi 的所有条目均携带）。 */
+  timestamp?: string;
   message?: {
     role?: string;
     content?: unknown;
