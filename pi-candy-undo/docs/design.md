@@ -120,7 +120,7 @@ interface RedoItem {
 | agent 通过 `write` / `edit` 修改的文件（**含 cwd 外用绝对路径写的文件**） | ✅ |
 | 其他工具：只要在 `trackedTools` 里且参数含 `path`（自定义编辑工具可这样接入） | ✅ |
 | 手动编辑（编辑器、IDE） | ❌ 永不 |
-| `bash`（及 Python/Node/sed/PowerShell 等脚本）造成的改动 | ❌（把 `bash` 加进 `trackedTools` 也无效：该工具参数里没有 `path`）。缓解手段：用全局规则/系统提示词约束模型优先使用内置 `write`/`edit` |
+| `bash`（及 Python/Node/sed/PowerShell 等脚本）造成的改动 | ❌（把 `bash` 加进 `trackedTools` 也无效：该工具参数里没有 `path`）。缓解手段：用全局规则/系统提示词强制模型只使用内置 `write`/`edit` |
 | 命中外排规则（内置默认值、用户 `exclude`、`storageDir` 自身及其内容） | ❌ |
 | 符号链接（`lstat` 判定，不跟随） | ❌ |
 | 超过 `maxFileSizeMB` 的文件 | ❌（并提示一次） |
