@@ -9,13 +9,42 @@ pi 的文件级撤销/重做插件，对标 Claude Code 的 `/rewind`：**按用
 
 ## 特性
 
-- **文件级快照**：只跟踪 agent 通过 `write` / `edit` 改过的文件，手动修改、`bash` 修改的文件天然不受影响
+- **文件级快照**：只跟踪 agent 通过 `write` / `edit` 改过的文件；**从未被 agent 改过**的文件，手动修改、`bash` 修改天然不受影响（已被 agent 改过的文件则会在回退时被覆盖，见 [「已知边界」](#已知边界)）
 - **支持工作区外文件**：agent 用绝对路径改过的文件同样可回退（工具级跟踪，无 cwd 限制）
 - **对话与代码联动**：对话回退走 pi 原生 `navigateTree`（分叉 + 原 prompt 回填编辑器），代码回退独立可选
 - **绝对恢复 + 幂等**：恢复是"把文件设为目标时刻的内容"，已处于目标状态时跳过写入；重复 `/undo`、`/redo` 安全
 - **redo 支持**：每次 `/undo` 前自动记录当前状态，`/redo` 可原样找回
 - **fork / clone 迁移**：新会话自动继承撤销历史（复制元数据 + 硬链接备份）
 - **i18n**：菜单与提示支持中文 / 英文
+
+## 安装
+
+### npm 安装
+
+```bash
+pi install npm:pi-candy-undo
+
+pi -e npm:pi-candy-undo      # 临时试用，不写入配置
+```
+
+### 本地安装
+
+```bash
+git clone https://github.com/CandyMuj/pi-candy-extensions.git
+cd pi-candy-extensions/pi-candy-undo   # 进入插件目录
+npm install                            # 本地安装不会自动装依赖（npm 安装会自动）
+pi install .                           # 安装当前目录
+
+pi -e .                                # 临时试用，不写入配置
+```
+
+或在 `settings.json` 中直接声明：
+
+```json
+{ "extensions": ["/absolute/path/to/pi-candy-undo/extensions"] }
+```
+
+> 若当前已有会话在运行：`pi install` 不会热加载，需执行 `/reload`（或重启 pi）。插件**从加载那一刻开始记录**，加载之前的 agent 改动无法回退。
 
 ## 使用
 
@@ -39,15 +68,7 @@ pi 的文件级撤销/重做插件，对标 Claude Code 的 `/rewind`：**按用
 
 重做最近一次 `/undo`（文件与/或对话）。以下情况会清空 redo 栈：发送新的用户消息。
 
-## 工作原理
-
-- **跟踪时机**：`tool_call` 事件在工具执行前触发，此时把文件"编辑前内容"存为不可变备份（每个文件首次出现时记录为 `originals`）
-- **快照时机**：每个 agent 操作**开始前**（`before_agent_start`）记录所有被跟踪文件的当前状态
-- **回退语义**：选择消息 M = 恢复到 M 回合开始之前。注意这是"目标时刻"语义：选中较早的消息会一次性撤销其后**所有**回合的改动（快照式回退的固有行为）
-- **恢复算法**：目标快照有记录 → 用该备份（记录为"不存在"则删除文件）；无记录 → 用 `originals`（该文件首次被 agent 编辑前的状态）
-- **跳过项**：符号链接、硬链接、超过大小上限的文件不会被跟踪或恢复
-
-### 让文件改动可被跟踪（推荐）
+## 让文件改动可被跟踪（推荐）
 
 本插件只能跟踪 agent 通过**内置 `write` / `edit` 工具**做的修改。如果模型改用脚本或命令行改文件（Python / Node / sed / shell / bash / PowerShell / cmd / bat 等），这些改动**不会被跟踪**，也就无法回退。
 
@@ -103,6 +124,14 @@ shell / bash / PowerShell / cmd / bat 等脚本或命令行方式修改文件
 
 排除匹配：cwd 内文件匹配相对路径，cwd 外文件匹配绝对路径；无 `/` 的模式按文件名匹配任意层级。
 
+## 工作原理
+
+- **跟踪时机**：`tool_call` 事件在工具执行前触发，此时把文件"编辑前内容"存为不可变备份（每个文件首次出现时记录为 `originals`）
+- **快照时机**：每个 agent 操作**开始前**（`before_agent_start`）记录所有被跟踪文件的当前状态
+- **回退语义**：选择消息 M = 恢复到 M 回合开始之前。注意这是"目标时刻"语义：选中较早的消息会一次性撤销其后**所有**回合的改动（快照式回退的固有行为）
+- **恢复算法**：目标快照有记录 → 用该备份（记录为"不存在"则删除文件）；无记录 → 用 `originals`（该文件首次被 agent 编辑前的状态）
+- **跳过项**：符号链接、硬链接、超过大小上限的文件不会被跟踪或恢复
+
 ## 存储布局
 
 ```text
@@ -116,25 +145,6 @@ shell / bash / PowerShell / cmd / bat 等脚本或命令行方式修改文件
 - 备份不可变：只新增版本，从不修改或删除既有备份（回退只读）
 - 会话隔离：每个会话独立目录；fork/clone 时复制元数据并硬链接备份，redo 栈不迁移
 - 清理：启动时删除 mtime 超过 `cleanupPeriodDays` 的会话目录；快照超限时淘汰最旧快照，并回收无引用的备份文件
-
-## 安装
-
-本地目录安装（与仓库其他插件一致）：
-
-```bash
-cd pi-candy-extensions
-pi install ./pi-candy-undo
-```
-
-或在 `settings.json` 中直接声明：
-
-```json
-{ "extensions": ["/absolute/path/to/pi-candy-undo/extensions"] }
-```
-
-首次安装后需在插件目录执行一次 `npm install`（本地路径安装不会自动装依赖）。
-
-> 若当前已有会话在运行：`pi install` 不会热加载，需执行 `/reload`（或重启 pi）。插件**从加载那一刻开始记录**，加载之前的 agent 改动无法回退。
 
 ## 开发
 

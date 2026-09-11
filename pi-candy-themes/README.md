@@ -18,17 +18,25 @@
 
 ## 安装
 
-目前**仅支持本地安装**，原因如下：
-
-- Pi 不支持选定 git 仓库中的子文件夹进行插件安装；
-- 不想一个仓库只放一个插件；
-- 也没有 npm 账号用于发布。
-
-因此请先将本目录克隆/复制到本地，再执行：
+### npm 安装
 
 ```bash
-pi install ./pi-candy-themes
+pi install npm:pi-candy-themes
+
+pi -e npm:pi-candy-themes        # 临时试用，不写入配置
 ```
+
+### 本地安装
+
+```bash
+git clone https://github.com/CandyMuj/pi-candy-extensions.git
+cd pi-candy-extensions/pi-candy-themes   # 进入插件目录
+pi install .                            # 安装当前目录
+
+pi -e .                                 # 临时试用，不写入配置
+```
+
+本主题包无第三方依赖，两种方式都无需额外 `npm install`。
 
 安装后可通过 `/settings` 选择主题，或在配置文件中直接设置：
 

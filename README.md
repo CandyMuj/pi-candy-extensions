@@ -15,23 +15,43 @@
 
 ## 插件列表
 
-| 插件 | 说明 | 文档 |
-|------|------|------|
-| [pi-candy-themes](pi-candy-themes) | Selenized 配色主题包 | [README](pi-candy-themes/README.md) |
-| [pi-candy-win-notify](pi-candy-win-notify) | Windows 桌面通知 + 终端标签页状态显示 | [README](pi-candy-win-notify/README.md) |
-| [pi-candy-toolbox](pi-candy-toolbox) | 小工具聚合箱：一个插件收纳零散小功能，每个工具独立开关与配置 | [README](pi-candy-toolbox/README.md) |
-| [pi-candy-undo](pi-candy-undo) | 文件级撤销/重做（对标 Claude Code `/rewind`）：`/undo`、`/redo`，回退对话与 agent 改过的文件 | [README](pi-candy-undo/README.md) |
+| 插件 | npm 安装 | 说明 | 文档 |
+|------|--------|------|------|
+| [pi-candy-themes](pi-candy-themes) | `pi install npm:pi-candy-themes` | Selenized 配色主题包 | [README](pi-candy-themes/README.md) |
+| [pi-candy-win-notify](pi-candy-win-notify) | `pi install npm:pi-candy-win-notify` | Windows 桌面通知 + 终端标签页状态显示 | [README](pi-candy-win-notify/README.md) |
+| [pi-candy-toolbox](pi-candy-toolbox) | `pi install npm:pi-candy-toolbox` | 小工具聚合箱：一个插件收纳零散小功能，每个工具独立开关与配置 | [README](pi-candy-toolbox/README.md) |
+| [pi-candy-undo](pi-candy-undo) | `pi install npm:pi-candy-undo` | 文件级撤销/重做（对标 Claude Code `/rewind`）：`/undo`、`/redo`，回退对话与 agent 改过的文件 | [README](pi-candy-undo/README.md) |
 
 ## 安装
 
-各插件以本地目录方式安装（仓库根目录为 `pi-candy-extensions`）：
+本仓库是 monorepo：多个插件同处一个仓库、各自独立安装。**pi 不支持从 git 仓库的某个子文件夹安装插件**（`pi install git:...` 只能装仓库根目录的包），而这里不想一个仓库只放一个插件，因此请按下面的方式逐个安装。
+
+### npm 安装
+
+包名与目录名相同：
 
 ```bash
-cd pi-candy-extensions
-pi install ./pi-candy-themes     # 目录名见上方插件列表
+pi install npm:pi-candy-undo      # 包名见上方插件列表
+
+pi -e npm:pi-candy-undo           # 临时试用，不写入配置
 ```
 
-依赖与配置细节见各插件 README；toolbox 内各工具的详细文档见其 `docs/` 目录。
+npm 安装由 pi 自动执行 `npm install`，无需手动处理依赖。
+
+### 本地安装
+
+```bash
+git clone https://github.com/CandyMuj/pi-candy-extensions.git
+cd pi-candy-extensions/pi-candy-undo   # 目录名见上方插件列表
+npm install                            # 可选：仅带第三方依赖的插件需要
+pi install .                           # 安装当前目录
+
+pi -e .                                # 临时试用，不写入配置
+```
+
+本地路径安装**不会**自动安装依赖，是否需要 `npm install` 见各插件 README；上面的命令仅为示例。
+
+各插件的依赖与配置细节见各自 README；`pi-candy-toolbox` 内各工具的详细文档见其 `docs/` 目录。
 
 ## 仓库约定
 

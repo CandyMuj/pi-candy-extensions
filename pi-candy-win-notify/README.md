@@ -6,18 +6,23 @@
 
 ## 安装
 
-本项目以本地目录方式安装（仓库根目录为 `pi-candy-extensions`）：
+### npm 安装
 
 ```bash
-cd pi-candy-extensions
-pi install ./pi-candy-win-notify
+pi install npm:pi-candy-win-notify
+
+pi -e npm:pi-candy-win-notify     # 临时试用，不写入配置
 ```
 
-本地安装需要自行准备依赖，首次安装后在插件目录执行一次：
+### 本地安装
 
 ```bash
-cd pi-candy-win-notify
-npm install   # 安装 koffi 及其 Windows 原生模块
+git clone https://github.com/CandyMuj/pi-candy-extensions.git
+cd pi-candy-extensions/pi-candy-win-notify   # 进入插件目录
+npm install                                  # koffi 及其 Windows 原生模块（本地安装不会自动装依赖）
+pi install .                                 # 安装当前目录
+
+pi -e .                                      # 临时试用，不写入配置
 ```
 
 ## 使用

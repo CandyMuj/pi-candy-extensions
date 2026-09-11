@@ -4,14 +4,25 @@ pi 的小工具聚合箱 —— 收纳零散的小功能、小工具。与其为
 
 ## 安装
 
-本项目以本地目录方式安装（仓库根目录为 `pi-candy-extensions`）：
+### npm 安装
 
 ```bash
-cd pi-candy-extensions
-pi install ./pi-candy-toolbox
+pi install npm:pi-candy-toolbox
+
+pi -e npm:pi-candy-toolbox        # 临时试用，不写入配置
 ```
 
-无第三方运行时依赖，安装后无需额外 `npm install`。安装完成后 `/reload` 生效，启动时控制台会打印每个工具的启用状态。
+### 本地安装
+
+```bash
+git clone https://github.com/CandyMuj/pi-candy-extensions.git
+cd pi-candy-extensions/pi-candy-toolbox   # 进入插件目录
+pi install .                             # 安装当前目录
+
+pi -e .                                  # 临时试用，不写入配置
+```
+
+无第三方运行时依赖，两种方式都无需额外 `npm install`。安装完成后 `/reload` 生效，启动时控制台会打印每个工具的启用状态。
 
 ## 配置文件
 
