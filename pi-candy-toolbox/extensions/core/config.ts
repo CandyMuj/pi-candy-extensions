@@ -61,9 +61,9 @@ export function loadRawConfig(): Record<string, unknown> {
 
 /**
  * 更新某工具在配置文件中的配置（保留其余字段与其他工具配置）。
- * 返回是否写入成功；文件不存在时自动创建。
+ * 成功返回 undefined；失败返回异常信息字符串，由调用方负责提示。
  */
-export function updateToolConfig(toolId: string, patch: Record<string, unknown>): boolean {
+export function updateToolConfig(toolId: string, patch: Record<string, unknown>): string | undefined {
   try {
     const raw = loadRawConfig();
     const current =
@@ -72,10 +72,10 @@ export function updateToolConfig(toolId: string, patch: Record<string, unknown>)
         : {};
     raw[toolId] = { ...current, ...patch };
     writeFileSync(CONFIG_PATH, JSON.stringify(raw, null, 2), "utf-8");
-    return true;
-  } catch {
-    // 写入失败：本模块不接触 UI，由调用方根据 false 返回值 notify 提示
-    return false;
+    return undefined;
+  } catch (e) {
+    // 本模块不接触 UI，也不打印终端：异常原因向上返回给调用方
+    return (e as Error)?.message ?? String(e);
   }
 }
 

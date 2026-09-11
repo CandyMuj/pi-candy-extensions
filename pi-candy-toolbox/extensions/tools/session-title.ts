@@ -287,10 +287,11 @@ const tool: ToolDefinition<SessionTitleConfig> = {
 
       const apply = (patch: Partial<SessionTitleConfig>): void => {
         Object.assign(config, patch);
-        if (updateToolConfig("session-title", patch)) {
+        const error = updateToolConfig("session-title", patch);
+        if (error === undefined) {
           ctx.ui.notify(`已保存: ${JSON.stringify(patch)}`, "info");
         } else {
-          ctx.ui.notify("配置写入失败（已生效但未持久化）", "warning");
+          ctx.ui.notify(`配置写入失败（已生效但未持久化）：${error}`, "warning");
         }
       };
 
@@ -320,10 +321,11 @@ const tool: ToolDefinition<SessionTitleConfig> = {
       if (sub === "model") {
         if (val === "none") {
           config.model = undefined;
-          if (updateToolConfig("session-title", { model: undefined })) {
+          const error = updateToolConfig("session-title", { model: undefined });
+          if (error === undefined) {
             ctx.ui.notify("已清除 model（回退当前会话模型）", "info");
           } else {
-            ctx.ui.notify("配置写入失败（已生效但未持久化）", "warning");
+            ctx.ui.notify(`配置写入失败（已生效但未持久化）：${error}`, "warning");
           }
           return;
         }
