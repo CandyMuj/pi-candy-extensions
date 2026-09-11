@@ -183,3 +183,32 @@ test("project settings are ignored for untrusted projects", async () => {
     await removeTempDir(root);
   }
 });
+
+test("invalid project config surfaces a warning and keeps the session usable", async () => {
+  const root = await makeTempDir();
+  try {
+    const workspace = path.join(root, "workspace");
+    await writeTextFile(path.join(workspace, ".keep"), "");
+    await writeTextFile(
+      path.join(workspace, ".pi", "settings.json"),
+      JSON.stringify({
+        candyUndo: { storageDir: path.join(root, "storage"), language: "en", pickerLimit: -5 },
+      }),
+    );
+
+    const { pi, state, ctx } = createStub(workspace);
+    piCandyUndo(pi as never);
+    await fire(state, ctx, "session_start", { reason: "startup" });
+
+    const warning = state.notices[0]?.message ?? "";
+    assert.match(warning, /configuration has issues/i);
+    assert.match(warning, /pickerLimit/);
+    assert.match(warning, /Using default/i);
+
+    // 非法值回落内置默认后，命令仍可正常执行。
+    await state.commands.get("undo")?.handler("", ctx);
+    assert.match(state.notices.at(-1)?.message ?? "", /nothing to undo/i);
+  } finally {
+    await removeTempDir(root);
+  }
+});
