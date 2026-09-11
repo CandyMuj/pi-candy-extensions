@@ -143,8 +143,8 @@ export const MESSAGES = {
     en: "Skipped backup ({error}): {path}",
   },
   "note.manualEdits": {
-    zh: "回退不会影响手动修改或通过 bash 修改的文件",
-    en: "Rewinding does not affect files edited manually or via bash",
+    zh: "💡 回退不会影响手动修改或通过 bash 修改的文件",
+    en: "💡 Rewinding does not affect files edited manually or via bash",
   },
 } as const;
 

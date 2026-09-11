@@ -190,7 +190,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
    - Never mind：直接关闭
 8. 推入 redo 栈（code/both → {restoreKey, oldLeafId}；conversation → {oldLeafId}）；超出 `maxRedoStackSize` 丢弃最旧项
 9. notify 结果（恢复 N 个文件 / 对话已回退 / 幂等提示"文件已是目标状态，未做改动"）
-10. UI 附注（同 CC，i18n 文案）："Rewinding does not affect files edited manually or via bash"
+10. UI 附注（同 CC，i18n 文案，带提示图标）："💡 Rewinding does not affect files edited manually or via bash"
 ```
 
 **navigateTree 的总结选项不会二次弹窗**（已核实源码：`/tree` 命令 UI 负责弹"Summarize branch?"三选一，`ctx.navigateTree({summarize})` 编程调用直接执行）——因此我们自己的菜单可以完整控制 6 个选项，无重复交互。
