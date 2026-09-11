@@ -73,8 +73,8 @@ export function updateToolConfig(toolId: string, patch: Record<string, unknown>)
     raw[toolId] = { ...current, ...patch };
     writeFileSync(CONFIG_PATH, JSON.stringify(raw, null, 2), "utf-8");
     return true;
-  } catch (e) {
-    console.error(`[candy-toolbox] 写入配置失败 ${CONFIG_PATH}: ${(e as Error)?.message ?? e}`);
+  } catch {
+    // 写入失败：本模块不接触 UI，由调用方根据 false 返回值 notify 提示
     return false;
   }
 }

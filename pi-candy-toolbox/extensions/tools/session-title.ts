@@ -65,6 +65,8 @@ interface CtxLike {
   modelRegistry?: ModelRegistryLike;
   model?: ModelLike | undefined;
   signal?: AbortSignal | undefined;
+  /** 提示出口：命令与事件上下文均带 ui（本工具所有用户可见消息都走这里，不打印终端） */
+  ui?: { notify(message: string, type?: "info" | "warning" | "error"): void };
 }
 /** 配置分支仅需要 ui.notify */
 interface ConfigCmdCtx {
@@ -162,16 +164,16 @@ export function generateTitleLocal(samples: Samples, maxLength: number): string 
 }
 
 /** 解析配置的模型（provider/modelId 格式）；未配置或解析失败返回 undefined */
-function resolveConfiguredModel(registry: ModelRegistryLike, spec: string | undefined): ModelLike | undefined {
+function resolveConfiguredModel(ctx: CtxLike, registry: ModelRegistryLike, spec: string | undefined): ModelLike | undefined {
   if (!spec?.trim()) return undefined;
   const [provider, modelId] = spec.trim().split("/");
   if (!provider || !modelId) {
-    console.error(`[candy-toolbox] session-title: model 配置格式应为 provider/modelId，当前值: ${spec}`);
+    ctx.ui?.notify(`[candy-toolbox] session-title: model 配置格式应为 provider/modelId，当前值: ${spec}`, "error");
     return undefined;
   }
   const m = registry.find(provider, modelId);
   if (!m) {
-    console.error(`[candy-toolbox] session-title: 配置的模型 ${spec} 未找到，回退当前会话模型`);
+    ctx.ui?.notify(`[candy-toolbox] session-title: 配置的模型 ${spec} 未找到，回退当前会话模型`, "error");
     return undefined;
   }
   return m;
@@ -188,7 +190,7 @@ async function generateTitleLlm(
 
   // 候选模型：配置的模型（可选）→ 当前会话模型，去重
   const candidates: ModelLike[] = [];
-  const configured = resolveConfiguredModel(registry, config.model);
+  const configured = resolveConfiguredModel(ctx, registry, config.model);
   if (configured) candidates.push(configured);
   if (ctx.model && !candidates.some((m) => m.provider === ctx.model!.provider && m.id === ctx.model!.id)) {
     candidates.push(ctx.model);
@@ -224,7 +226,7 @@ async function generateTitleLlm(
       return text;
     } catch (e) {
       lastErr = e;
-      console.error(`[candy-toolbox] session-title: 模型 ${model.provider}/${model.id} 调用失败: ${(e as Error)?.message ?? e}`);
+      ctx.ui?.notify(`[candy-toolbox] session-title: 模型 ${model.provider}/${model.id} 调用失败: ${(e as Error)?.message ?? e}`, "error");
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error("模型调用失败");
@@ -255,8 +257,8 @@ export async function generateTitle(
       const title = cleanupTitle(await generateTitleLlm(ctx, config, prompt), config.maxLength);
       if (title) return { title, mode: "llm" };
     } catch (e) {
-      // LLM 不可用：记录原因，回退 local
-      console.error(`[candy-toolbox] session-title: LLM 生成失败，回退本地模式 — ${(e as Error)?.message ?? e}`);
+      // LLM 不可用：提示原因，回退 local
+      ctx.ui?.notify(`[candy-toolbox] session-title: LLM 生成失败，回退本地模式 — ${(e as Error)?.message ?? e}`, "error");
     }
     return { title: generateTitleLocal(samples, config.maxLength), mode: "local" };
   }
