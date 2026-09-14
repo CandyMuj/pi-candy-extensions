@@ -11,14 +11,37 @@
  *                            （也可写 { "enabled": false } 来禁用）
  *
  * 配置中未提到的工具按工具声明的 defaultEnabled 决定（默认启用）。
+ *
+ * 插件级配置放在保留 key "$toolbox" 下（不是工具 id；**工具 id 不得以 "$" 开头**）：
+ *
+ *   "$toolbox": { "debug": false, "logDir": "~/.pi/candy-toolbox-logs" }
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Logger } from "./log";
 
 /** 配置文件路径 */
 export const CONFIG_PATH = join(getAgentDir(), "candy-toolbox.json");
+
+/** 插件级配置的保留 key（不是工具 id） */
+export const TOOLBOX_KEY = "$toolbox";
+
+/** 插件级配置（$toolbox 下的字段） */
+export interface ToolboxConfig {
+  /** 总开关：true 时所有工具都写日志（工具级 debug 仍可单独开启某个工具） */
+  debug: boolean;
+  /** 日志目录（支持 ~ 展开；默认 ~/.pi/candy-toolbox-logs，即 agentDir 的同级目录） */
+  logDir: string;
+}
+
+/** 插件级配置默认值（未配置或非法字段走这里；改默认值只需改这一处） */
+export const DEFAULT_TOOLBOX_CONFIG: ToolboxConfig = {
+  debug: false,
+  logDir: join(dirname(getAgentDir()), "candy-toolbox-logs"),
+};
 
 /**
  * 一个工具的完整定义。每个工具文件默认导出一个 ToolDefinition，
@@ -34,7 +57,7 @@ export interface ToolDefinition<TConfig extends object = Record<string, unknown>
   /** 配置中未提到该工具时是否默认启用（默认 true） */
   defaultEnabled?: boolean;
   /** 注册逻辑，仅在工具启用时调用 */
-  register(pi: ExtensionAPI, config: TConfig): void;
+  register(pi: ExtensionAPI, config: TConfig, log: Logger): void;
 }
 
 /** 归一化结果：开关状态 + 合并后的最终配置 */
@@ -57,6 +80,27 @@ export function loadRawConfig(): Record<string, unknown> {
     // 配置损坏：静默回退默认
   }
   return {};
+}
+
+/**
+ * 展开开头的 `~` / `~/` / `~\` 为用户主目录（与 pi-candy-undo 同一约定）。
+ */
+function expandHome(input: string, home: string = homedir()): string {
+  if (input === "~") return home;
+  if (input.startsWith("~/") || input.startsWith("~\\")) return join(home, input.slice(2));
+  return input;
+}
+
+/** 归一化插件级配置（$toolbox）；未配置或非法值一律回退默认 */
+export function resolveToolboxConfig(raw: Record<string, unknown>): ToolboxConfig {
+  const value = raw[TOOLBOX_KEY];
+  const obj = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const dir = typeof obj.logDir === "string" ? obj.logDir.trim() : "";
+  return {
+    debug: typeof obj.debug === "boolean" ? obj.debug : DEFAULT_TOOLBOX_CONFIG.debug,
+    // 相对路径按 cwd 解析；分隔符/盘符差异交给 path.resolve 处理
+    logDir: dir ? resolve(expandHome(dir)) : DEFAULT_TOOLBOX_CONFIG.logDir,
+  };
 }
 
 /**

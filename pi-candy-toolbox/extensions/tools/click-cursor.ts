@@ -12,18 +12,14 @@
  * 无回归保证：仅对「落在编辑器矩形内的左键按下」返回 consume，其余事件
  * （滚轮、选区拖拽、链接、右键粘贴、编辑器外点击）原样交给 viewport。
  * 已知限制：编辑器区域内的拖拽选区不再工作（按下被拦截为光标定位）。
+ * 日志：写 <logDir>/click-cursor.log（由工具箱入口按 $toolbox.debug || 本工具 debug 决定，详见 docs/click-cursor.md）。
  */
-import { appendFileSync } from "node:fs";
-import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, CustomEditor } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "../core/config";
+import type { Logger } from "../core/log";
 
 /** SGR 鼠标序列（与 pi 的 parseSgrMouseEvent 同款正则） */
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
-
-/** debug 日志文件路径（终端日志会遮挡 UI） */
-const LOG_PATH = join(getAgentDir(), "candy-toolbox-click-cursor.log");
 
 interface Rect {
   x: number;
@@ -341,21 +337,11 @@ const tool: ToolDefinition = {
   id: "click-cursor",
   description: "全屏模式下点击输入框移动光标",
   defaultConfig: { debug: false },
-  register(pi: ExtensionAPI, config: { debug?: boolean }): void {
+  register(pi: ExtensionAPI, _config: { debug?: boolean }, log: Logger): void {
     let tuiRef: unknown = undefined;
     let editorRef: CustomEditor | undefined = undefined;
     let installed = false;
     let ensureTimer: ReturnType<typeof setInterval> | undefined;
-
-    // 调试日志写入文件（终端日志会遮挡 UI 且不便复制）
-    const log = (...args: unknown[]): void => {
-      if (!config.debug) return;
-      try {
-        appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${args.join(" ")}\n`, "utf-8");
-      } catch {
-        // 日志写入失败忽略
-      }
-    };
 
     const handler = (data: string): MouseResult => {
       ensureFirst(tuiRef, handler); // 惰性前置（模式切换 rebind 后自动兜住）
@@ -363,6 +349,9 @@ const tool: ToolDefinition = {
     };
 
     pi.on("session_start", (event, ctx) => {
+      // 仅在交互式 TUI 安装：headless（print/json/rpc）没有 TUI，widget 工厂不会执行，
+      // tuiRef 会一直是 undefined，后续定位编辑器会抛错
+      if (ctx.mode !== "tui") return;
       if (!installed) {
         installed = true;
         // 借 widget 工厂拿 tui 引用：widget 按 key 隔离（只动自己的 key），

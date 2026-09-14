@@ -6,6 +6,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "../core/config";
+import type { Logger } from "../core/log";
 
 export interface HelloConfig {
   /** 打招呼的内容 */
@@ -17,7 +18,7 @@ const tool: ToolDefinition<HelloConfig> = {
   description: "示例工具：注册 /candy-hello 命令",
   defaultEnabled: false, // 示例工具默认关闭
   defaultConfig: { greeting: "你好，我是 candy-toolbox 🍬" },
-  register(pi: ExtensionAPI, config: HelloConfig): void {
+  register(pi: ExtensionAPI, config: HelloConfig, _log: Logger): void {
     pi.registerCommand("candy-hello", {
       description: "candy-toolbox 示例：打个招呼",
       handler: async (_args, ctx) => {

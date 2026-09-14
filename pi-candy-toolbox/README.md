@@ -28,10 +28,11 @@ pi -e .                                  # 临时试用，不写入配置
 
 配置文件位于 `~/.pi/agent/candy-toolbox.json`，不存在时所有工具按默认值启用。
 
-每个工具拥有一个**独立的顶层 key（工具 id）**，key 下放该工具的具体配置。开关支持三种写法：
+每个工具拥有一个**独立的顶层 key（工具 id）**，key 下放该工具的具体配置（插件级配置另见下方 `$toolbox`）。开关支持三种写法：
 
 ```json
 {
+  "$toolbox": { "debug": false, "logDir": "~/.pi/candy-toolbox-logs" },
   "hello": true,
   "some-tool": false,
   "fancy-tool": {
@@ -48,6 +49,17 @@ pi -e .                                  # 临时试用，不写入配置
 | `"tool-id": false` | 禁用 |
 | `"tool-id": { ... }` | 启用，字段与默认配置浅合并覆盖（也可写 `{ "enabled": false }` 禁用） |
 | （未提及） | 按工具的 `defaultEnabled` 决定，默认启用 |
+
+### 插件级配置 `$toolbox`
+
+**以 `$` 开头的顶层 key 是插件级配置，不是工具 id；工具 id 不得以 `$` 开头。**
+
+| 字段 | 默认 | 说明 |
+|------|------|------|
+| `debug` | `false` | 日志总开关：`true` 时所有工具都写日志（工具级 `debug: true` 仍可单独开启某个工具，两者是「或」关系） |
+| `logDir` | `~/.pi/candy-toolbox-logs` | 日志目录，支持 `~` 展开与相对路径；各工具写入 `<logDir>/<工具 id>.log`，插件自身写入 `<logDir>/$toolbox.log` |
+
+日志只写文件，**不打印终端**：终端输出会污染 `pi --help` 等大部分命令的 stdout、非交互模式的 stderr，以及 `/reload` 时的 TUI 画面。`$toolbox.log` 记录启动摘要（加载开始/启用/禁用/加载完成）与注册失败，同样由 `$toolbox.debug` 控制。
 
 编辑配置文件后需重启 pi（或 `/reload`）生效。
 
@@ -86,8 +98,9 @@ extensions/
 
 约定：
 
-- 工具文件/目录默认导出一个 `ToolDefinition`：`id`（配置 key）+ `defaultConfig` + `register(pi, config)`，目录工具的入口同样是 `index.ts` 导出 `ToolDefinition`，接口一致
+- 工具文件/目录默认导出一个 `ToolDefinition`：`id`（配置 key）+ `defaultConfig` + `register(pi, config, log)`，目录工具的入口同样是 `index.ts` 导出 `ToolDefinition`，接口一致
 - `register` 只在工具**启用时**被调用，不用自己判断开关；拿到的是合并后的最终配置
+- 第三个参数 `log` 是统一日志出口（`core/log.ts`）：写 `<logDir>/<工具 id>.log`，不打印终端；开关由入口按 `$toolbox.debug || config.debug === true` 算好，工具在 `defaultConfig` 里留一个 `debug: false` 字段即可，不必自己读
 - 配置中未提到的工具默认启用；有副作用、需要用户确认的工具可设 `defaultEnabled: false`
 - 单文件升级为目录是纯增量操作：把文件移入新目录改名为 `index.ts`，清单中 import 路径加目录名即可
 - 新增工具后顺手更新本 README 的「已有工具」表格

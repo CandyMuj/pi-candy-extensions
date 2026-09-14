@@ -7,10 +7,15 @@
  *   1. 复制 extensions/tools/_template.ts 为 tools/<tool-id>.ts 并实现
  *   2. 在本文件 TOOLS 清单中 import 并加入数组（一行）
  *   3. 可选：在 ~/.pi/agent/candy-toolbox.json 中用工具 id 配置开关
+ *
+ * 日志：全部写文件（见 core/log.ts），不打印终端。开关判定：
+ *   该工具是否写日志 = $toolbox.debug || 工具配置.debug === true
+ *   插件自身（$toolbox.log）由 $toolbox.debug 控制（错误也走同一开关）
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { loadRawConfig, resolveTool } from "./core/config";
+import { TOOLBOX_KEY, loadRawConfig, resolveTool, resolveToolboxConfig } from "./core/config";
 import type { ToolDefinition } from "./core/config";
+import { createLogger } from "./core/log";
 import hello from "./tools/hello";
 import sessionTitle from "./tools/session-title";
 import clickCursor from "./tools/click-cursor";
@@ -26,22 +31,31 @@ const TOOLS: ToolDefinition<object>[] = [
 
 export default function (pi: ExtensionAPI): void {
   const raw = loadRawConfig();
+  const toolbox = resolveToolboxConfig(raw);
+  // 插件自身日志（$toolbox.log，id 直接用保留 key，与配置同名且排序靠前）：
+  // 启动摘要、禁用/启用、注册失败都由 $toolbox.debug 控制
+  const log = createLogger(TOOLBOX_KEY, toolbox.debug);
   let enabledCount = 0;
+
+  log(`加载开始（logDir=${toolbox.logDir}）`);
 
   for (const tool of TOOLS) {
     const { enabled, config } = resolveTool(tool, raw[tool.id]);
     if (!enabled) {
-      console.log(`[candy-toolbox] ${tool.id}: 已禁用`);
+      log(`${tool.id}: 已禁用`);
       continue;
     }
     enabledCount++;
+    // 工具级 debug 与插件级 debug 是「或」关系：任一为 true，该工具就写自己的 <tool-id>.log
+    const toolLog = createLogger(tool.id, toolbox.debug || (config as { debug?: unknown }).debug === true);
     try {
-      tool.register(pi, config);
-      console.log(`[candy-toolbox] ${tool.id}: 已启用`);
+      tool.register(pi, config, toolLog);
+      log(`${tool.id}: 已启用`);
     } catch (e) {
+      log(`${tool.id}: 注册失败`, e);
       console.error(`[candy-toolbox] ${tool.id}: 注册失败`, e);
     }
   }
 
-  console.log(`[candy-toolbox] 加载完成：${enabledCount}/${TOOLS.length} 个工具启用`);
+  log(`加载完成：${enabledCount}/${TOOLS.length} 个工具启用`);
 }

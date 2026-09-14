@@ -15,6 +15,12 @@
  *
  * 配置约定（详见 core/config.ts）：
  *   ~/.pi/agent/candy-toolbox.json 中 "tool-id": true / false / { 配置 }
+ *   插件级配置放在保留 key "$toolbox"（debug / logDir），工具 id 不得以 "$" 开头
+ *
+ * 日志约定（详见 core/log.ts）：
+ *   - register 第三个参数是统一日志出口，写 <logDir>/<tool-id>.log，不打印终端
+ *   - 开关由入口统一算好：$toolbox.debug || 本工具配置.debug === true
+ *     （工具只需在 defaultConfig 里留一个 bool 字段 debug: false，不必自己读）
  *
  * 注意：
  *   - register 只在工具启用时被调用，无需自己判断开关
@@ -22,6 +28,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "../core/config";
+import type { Logger } from "../core/log";
 
 /** 本工具的独立配置项（对应配置文件中 "my-tool" key 下的字段） */
 export interface MyToolConfig {
@@ -34,10 +41,11 @@ const tool: ToolDefinition<MyToolConfig> = {
   description: "一句话说明这个工具是干什么的",
   defaultConfig: { someOption: "default value" },
   // defaultEnabled: false, // 默认关闭的工具取消这行注释
-  register(pi: ExtensionAPI, config: MyToolConfig): void {
+  register(pi: ExtensionAPI, config: MyToolConfig, log: Logger): void {
     // 在这里注册命令 / 工具 / 事件监听……
     void config;
     void pi;
+    void log; // log("诊断信息") 写 <logDir>/<tool-id>.log；不传/关闭时是空实现
     // pi.registerCommand("my-tool", { ... });
     // pi.registerTool({ ... });
     // pi.on("session_start", async (_e, ctx) => { ... });

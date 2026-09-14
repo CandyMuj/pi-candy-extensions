@@ -4,7 +4,9 @@
 
 ## 功能
 
-**仅 fullscreen 模式**生效：鼠标点击输入框（编辑器区域）内任意位置，光标移动到点击处——类似 Claude Code 的点击编辑体验。自动处理多行换行、滚动偏移、行尾边界，并按**显示宽度**精确定位（中文/emoji 等宽字符点击到字符间隙）。
+**仅 fullscreen 模式生效**：鼠标点击输入框（编辑器区域）内任意位置，光标移动到点击处——类似 Claude Code 的点击编辑体验。自动处理多行换行、滚动偏移、行尾边界，并按**显示宽度**精确定位（中文/emoji 等宽字符点击到字符间隙）。
+
+可用性由 pi 决定：**鼠标上报只在 fullscreen（alt-screen）下开启**，regular（inline）模式主屏不开启鼠标上报，工具收不到任何鼠标序列。安装本身另带 `ctx.mode !== "tui"` 守卫：print / json / rpc 等 headless 模式没有 TUI（widget 工厂不会执行），直接不安装。
 
 ## 配置
 
@@ -16,7 +18,8 @@
 }
 ```
 
-- `debug`：开启后把鼠标事件、编辑器矩形、光标定位等日志**写入文件** `~/.pi/agent/candy-toolbox-click-cursor.log`（不打印到终端，避免遮挡 UI），便于排查点击定位问题（排查后建议关闭）
+- `debug`：开启后把鼠标事件、编辑器矩形、光标定位等日志**写入文件** `<logDir>/click-cursor.log`（`logDir` 即插件级配置 `$toolbox.logDir`，默认 `~/.pi/candy-toolbox-logs`；不打印到终端，避免遮挡 UI），便于排查点击定位问题（排查后建议关闭）
+- 与插件级开关的关系：`$toolbox.debug` 或本工具 `debug` 任一为 `true`，本工具就写日志（两个开关是「或」关系）；两者都为 `false` 时连日志目录都不会创建
 
 ## 行为细节
 
@@ -78,7 +81,7 @@ pi 升级导致任一失效时，工具自动退化为无点击定位，编辑�
 ## 实现要点
 
 - 单文件 `extensions/tools/click-cursor.ts`，`CustomEditor` 仅作类型引用（type-only import，运行时零额外依赖）
-- 配置项仅 `debug`（默认关，日志开关）
-- 安装生命周期：`session_start` 安装一次（`installed` 守卫）并重启轮询；`session_shutdown` 清理定时器，下次 session_start 自动恢复
+- 配置项仅 `debug`（默认关，日志开关；与插件级 `$toolbox.debug` 为「或」关系）
+- 安装生命周期：`session_start` 安装一次（`installed` 守卫，且仅 `ctx.mode === "tui"`）并重启轮询；`session_shutdown` 清理定时器，下次 session_start 自动恢复
 - 鼠标事件统一由 `onTerminalInput` 监听器入口处理（viewport 对鼠标序列总是 consume，编辑器 handleInput 收不到鼠标，无需子类覆盖）
 - reload 时（`session_start` reason 为 `reload`）从 session 消息重建编辑器 history，保证 ↑↓ 历史切换在 reload 后仍可用
