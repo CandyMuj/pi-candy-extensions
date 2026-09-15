@@ -13,12 +13,12 @@
  *   插件自身（$toolbox.log）由 $toolbox.debug 控制（错误也走同一开关）
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { TOOLBOX_KEY, loadRawConfig, resolveTool, resolveToolboxConfig } from "./core/config";
-import type { ToolDefinition } from "./core/config";
-import { createLogger } from "./core/log";
-import hello from "./tools/hello";
-import sessionTitle from "./tools/session-title";
-import clickCursor from "./tools/click-cursor";
+import { TOOLBOX_KEY, loadRawConfig, resolveTool, resolveToolboxConfig } from "./core/config.ts";
+import type { ToolDefinition } from "./core/config.ts";
+import { createLogger } from "./core/log.ts";
+import hello from "./tools/hello.ts";
+import sessionTitle from "./tools/session-title.ts";
+import clickCursor from "./tools/click-cursor.ts";
 
 /** 工具清单：新增工具在此登记（目录工具 import 后加一行，例如：myTool,） */
 const TOOLS: ToolDefinition<object>[] = [

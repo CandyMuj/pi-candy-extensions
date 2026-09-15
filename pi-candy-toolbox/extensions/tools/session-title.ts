@@ -13,9 +13,9 @@
  *     其标题中的会话名段会自动跟随（session_info_changed），[pi@id] 定位标识不受影响
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinition } from "../core/config";
-import type { Logger } from "../core/log";
-import { updateToolConfig } from "../core/config";
+import type { ToolDefinition } from "../core/config.ts";
+import type { Logger } from "../core/log.ts";
+import { updateToolConfig } from "../core/config.ts";
 
 export interface SessionTitleConfig {
   /** 生成模式："llm" 用模型生成（失败自动回退 local），"local" 零 token 本地截断 */

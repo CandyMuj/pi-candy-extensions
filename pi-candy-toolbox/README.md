@@ -104,6 +104,27 @@ extensions/
 - 配置中未提到的工具默认启用；有副作用、需要用户确认的工具可设 `defaultEnabled: false`
 - 单文件升级为目录是纯增量操作：把文件移入新目录改名为 `index.ts`，清单中 import 路径加目录名即可
 - 新增工具后顺手更新本 README 的「已有工具」表格
+- 顺手补测试：简单工具 `tests/<tool-id>.test.ts`，复杂工具 `tests/<tool-id>/`；插件级（`core/` 等非工具模块）放 `tests/$toolbox/`（见下一节）
+
+## 测试
+
+```bash
+npm install        # 首次：装 devDependencies（typescript / @types/node）与 peer 依赖
+npm test           # node --test，直接跑 TypeScript（无需构建）
+npm run typecheck  # tsc --noEmit
+```
+
+测试文件与工具的形态一一对应，统一放在 `tests/`：
+
+| 被测对象 | 命名 |
+|----------|------|
+| 简单工具（单文件） | `tests/<tool-id>.test.ts`（如 `session-title.test.ts`、`click-cursor.test.ts`） |
+| 复杂工具（目录） | `tests/<tool-id>/` 目录，内放多个 `*.test.ts` |
+| `core/` 等非工具模块（插件级） | `tests/$toolbox/<模块名>.test.ts`（如 `config.test.ts`、`log.test.ts`） |
+| 公共 stub / 辅助函数 | `tests/helpers.ts` |
+
+约定：某个测试需要自定义 agent 目录时，先调 `useTempAgentDir()` 再**动态** `import()` 被测模块——
+`core/config.ts` 在模块加载时就用 `getAgentDir()` 算好了 `CONFIG_PATH`，静态 import 会先于 env 设置执行。
 
 ## 工具文档
 

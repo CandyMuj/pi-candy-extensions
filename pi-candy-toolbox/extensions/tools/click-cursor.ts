@@ -15,8 +15,8 @@
  * 日志：写 <logDir>/click-cursor.log（由工具箱入口按 $toolbox.debug || 本工具 debug 决定，详见 docs/click-cursor.md）。
  */
 import type { ExtensionAPI, CustomEditor } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinition } from "../core/config";
-import type { Logger } from "../core/log";
+import type { ToolDefinition } from "../core/config.ts";
+import type { Logger } from "../core/log.ts";
 
 /** SGR 鼠标序列（与 pi 的 parseSgrMouseEvent 同款正则） */
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
@@ -193,8 +193,10 @@ export function moveCursorToScreen(
 
   // 段起点显示宽度（近似：wrap 段除末段外均整宽 layoutWidth）
   let segIndex = 0;
-  for (let i = 0; i < visualLines.length && visualLines[i] !== vl; i++) {
-    if (visualLines[i].logicalLine === vl.logicalLine) segIndex++;
+  for (let i = 0; i < visualLines.length; i++) {
+    const line = visualLines[i];
+    if (!line || line === vl) break;
+    if (line.logicalLine === vl.logicalLine) segIndex++;
   }
   // 内容起点偏移校正：编辑器渲染宽度（lastWidth 反推）可能小于容器宽度（布局分配
   // 差异），内容近似居中偏移。实测样本（"字符字符 123123"）吻合该校正；

@@ -5,8 +5,8 @@
  * 新增真实工具时请复制 _template.ts 并对照修改。
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinition } from "../core/config";
-import type { Logger } from "../core/log";
+import type { ToolDefinition } from "../core/config.ts";
+import type { Logger } from "../core/log.ts";
 
 export interface HelloConfig {
   /** 打招呼的内容 */

@@ -27,8 +27,8 @@
  *   - 默认配置不要写死敏感信息；需要用户填写的项给合理默认值
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinition } from "../core/config";
-import type { Logger } from "../core/log";
+import type { ToolDefinition } from "../core/config.ts";
+import type { Logger } from "../core/log.ts";
 
 /** 本工具的独立配置项（对应配置文件中 "my-tool" key 下的字段） */
 export interface MyToolConfig {

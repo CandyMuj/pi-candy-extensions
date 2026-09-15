@@ -13,7 +13,7 @@
  */
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { loadRawConfig, resolveToolboxConfig } from "./config";
+import { loadRawConfig, resolveToolboxConfig } from "./config.ts";
 
 /** 日志出口：当函数用即可，log("消息", 1, { a: 2 }) */
 export type Logger = (...args: unknown[]) => void;

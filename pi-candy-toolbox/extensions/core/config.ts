@@ -21,7 +21,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Logger } from "./log";
+import type { Logger } from "./log.ts";
 
 /** 配置文件路径 */
 export const CONFIG_PATH = join(getAgentDir(), "candy-toolbox.json");
