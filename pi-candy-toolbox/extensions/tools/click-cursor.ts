@@ -373,11 +373,12 @@ const tool: ToolDefinition = {
         editorRef = findCurrentEditor(tuiRef);
         log("已安装：tui 引用取自 widget 工厂（key 隔离），编辑器与其他扩展零影响");
       }
-      // reload 后 pi 不会重新 populateHistory（内存历史可能丢失/错乱），
-      // 从 session 消息重建编辑器历史，保证 ↑↓ 历史切换可用（幂等，其他 reason 不动）
-      if (event.reason === "reload") {
+      // 会话重建（reload / resume / fork / new）后编辑器历史会错乱：pi 的 populateHistory
+      // 只是 addToHistory 追加不清空，且可能在编辑器实例重建前跑在旧实例上——
+      // 按当前会话的用户消息重建 history，保证 ↑↓ 可用（幂等；startup 走 pi 自身流程，不干预）
+      if (event.reason !== "startup") {
         rebuildHistoryFromSession(ctx.sessionManager, findCurrentEditor(tuiRef) as { history: string[] } | undefined);
-        log("reload：已从 session 重建编辑器历史");
+        log(`${event.reason}：已从 session 重建编辑器历史`);
       }
       // 立即前置 + 轮询兜底：鼠标事件会被 viewport 优先 consume，
       // 若等 handler 首次收到键盘才前置，用户 reload 后直接点击将永远无效

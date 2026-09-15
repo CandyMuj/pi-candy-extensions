@@ -96,6 +96,8 @@ export interface CtxOptions {
   mode?: string;
   modelRegistry?: any;
   model?: any;
+  /** 放进 tui.children 的假编辑器（findCurrentEditor 的形状匹配目标） */
+  editor?: unknown;
 }
 
 export function makeCtx(options: CtxOptions = {}): CtxStub {
@@ -104,7 +106,7 @@ export function makeCtx(options: CtxOptions = {}): CtxStub {
   const widgetKeys: string[] = [];
   const terminalHandlers: Array<(data: string) => unknown> = [];
   const tui: TuiStub = {
-    children: [],
+    children: options.editor === undefined ? [] : [{ children: [options.editor] }],
     inputListeners: new Set(),
     mode: "fullscreen",
     requestRender: () => {},

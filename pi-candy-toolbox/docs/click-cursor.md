@@ -46,9 +46,9 @@
 ③ tui.currentLayout + tui.children
      每次渲染后布局树含每个 layout node 的 rect；编辑器实例从 tui.children 的
      editorContainer 中动态定位（pi 默认编辑器实例，非替换产物）
-④ reload 后从 session 重建编辑器历史
-     pi 在 /reload 时不会重新 populateHistory（内存历史可能丢失/错乱），
-     从 sessionManager 的用户消息重建 history（幂等，其他启动路径不干预）
+④ 会话重建后按当前会话重建编辑器历史
+     /reload、/resume、/fork、/new 等 reason 下 pi 的 populateHistory 只追加不清空，
+     且可能发生在编辑器实例重建之前——从 sessionManager 的用户消息重建 history（幂等；startup 走 pi 自身流程，不干预）
 
 屏幕坐标 → 文本位置：
   布局溢出校正：布局总行数 > 终端高度时 TuiAltScreen 截取底部显示，
@@ -84,4 +84,4 @@ pi 升级导致任一失效时，工具自动退化为无点击定位，编辑�
 - 配置项仅 `debug`（默认关，日志开关；与插件级 `$toolbox.debug` 为「或」关系）
 - 安装生命周期：`session_start` 安装一次（`installed` 守卫，且仅 `ctx.mode === "tui"`）并重启轮询；`session_shutdown` 清理定时器，下次 session_start 自动恢复
 - 鼠标事件统一由 `onTerminalInput` 监听器入口处理（viewport 对鼠标序列总是 consume，编辑器 handleInput 收不到鼠标，无需子类覆盖）
-- reload 时（`session_start` reason 为 `reload`）从 session 消息重建编辑器 history，保证 ↑↓ 历史切换在 reload 后仍可用
+- 会话重建时（`session_start` reason 非 `startup`：reload / resume / fork / new）从 session 消息重建编辑器 history，保证 ↑↓ 历史切换在会话切换后仍可用

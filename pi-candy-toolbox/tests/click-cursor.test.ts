@@ -183,3 +183,39 @@ test("session_start installs only in TUI mode", () => {
 
   stub.handlers.get("session_shutdown")?.[0]?.({}, tui.ctx); // 清掉轮询定时器，避免进程挂住
 });
+
+test("history is rebuilt on session rebuild reasons, untouched on startup", () => {
+  const stub = makePiStub();
+  const log = makeLogger();
+  clickCursor.register(stub.pi, { debug: true }, log.log);
+  const start = stub.handlers.get("session_start")?.[0];
+  const shutdown = stub.handlers.get("session_shutdown")?.[0];
+  assert.ok(start);
+
+  // findCurrentEditor 需要 buildVisualLineMap / setCursorCol / state 三个形状
+  const editor: any = {
+    history: ["旧会话的历史"],
+    state: { lines: ["x"], cursorLine: 0 },
+    buildVisualLineMap: () => [],
+    setCursorCol: () => {},
+  };
+  const user = (text: string) => ({ type: "message", message: { role: "user", content: [{ type: "text", text }] } });
+  const run = (reason: string, entries: unknown[]) => start({ reason }, makeCtx({ mode: "tui", editor, entries }).ctx);
+
+  run("startup", [user("启动会话的消息")]);
+  assert.deepEqual(editor.history, ["旧会话的历史"], "startup 不干预 pi 自身的 populate");
+
+  run("resume", [user("恢复的消息A"), user("恢复的消息B")]);
+  assert.deepEqual(editor.history, ["恢复的消息B", "恢复的消息A"], "resume 按当前会话重建");
+
+  run("new", []);
+  assert.deepEqual(editor.history, [], "空会话应清空历史");
+
+  run("fork", [user("分支的消息")]);
+  assert.deepEqual(editor.history, ["分支的消息"], "fork 同样重建");
+
+  run("reload", [user("重载后的消息")]);
+  assert.deepEqual(editor.history, ["重载后的消息"], "reload 仍重建");
+
+  shutdown?.({}, makeCtx({ mode: "tui" }).ctx); // 清掉轮询定时器，避免进程挂住
+});
