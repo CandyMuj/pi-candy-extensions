@@ -59,7 +59,7 @@
 2. 选中第 N 个提问后：数出**第 N 个用户消息组件**（按 `text + rebuild` 的形状识别），从渲染顶部开始逐个组件 `render` 测高并累加，得到该提问首行的精确行号；
 3. `scrollView.scrollTo(row)` —— 提问正好置顶。
 
-不读取/依赖 pi 的 OSC 133 标记（某些版本/插件组合下只有助手回复打标记），因此任何渲染环境一致；定位失败直接报错，不做猜测。压缩后的旧消息没有组件，降级滚到会话顶部（摘要处）；纯 skill 块提问渲染成 skill 组件，跳转到该组件位置。
+不读取/依赖 pi 的 OSC 133 标记（某些版本/插件组合下只有助手回复打标记），因此任何渲染环境一致；定位失败直接报错，不做猜测。压缩后的旧消息没有组件，降级滚到会话顶部（摘要处）；以 skill 块开头的提问（含带尾随正文的）一律定位到 skill 组件。
 
 ### 压缩降级
 
@@ -75,6 +75,6 @@
 ## 实现要点
 
 - 单文件 `extensions/tools/transcript-jump.ts`；`JumpDialog` 用 `Container + Input + SelectList` 拼装，**非 overlay**（`ctx.ui.custom` 直接替换编辑器区域，与原生 select 同款形态），左右翻页按 pi 会话选择器同款键位匹配（`tui.editor.cursorLeft/Right` + `tui.select.pageUp/pageDown`）
-- 核心纯函数（可单测）：`listPrompts` / `userIsLocatable` / `locatableUserOrdinal` / `isUserMessageComponent` / `renderHeight` / `locateUserPromptRow` / `findTranscriptContainers` / `transcriptGeometry` / `formatRelativeTime` / `scrollToRow`
+- 核心纯函数（可单测）：`listPrompts` / `userIsLocatable` / `startsWithSkillBlock` / `locateTarget` / `isUserMessageComponent` / `isSkillComponent` / `renderHeight` / `locatePromptRow` / `findTranscriptContainers` / `transcriptGeometry` / `formatRelativeTime` / `scrollToRow`
 - 命令与快捷键共用同一个 `openPicker` 入口；`ctx.mode !== "tui"` 时直接返回
 - 依赖：运行时使用 pi 提供的 `@earendil-works/pi-tui`（测试环境作为 devDependency 安装）

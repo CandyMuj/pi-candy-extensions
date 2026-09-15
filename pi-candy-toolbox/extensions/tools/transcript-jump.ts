@@ -148,15 +148,6 @@ export function userIsLocatable(e: EntryLike): boolean {
   return userRendersZone(entryText(e));
 }
 
-/** 纯 skill 块提问（无尾随正文）：渲染成 SkillInvocationMessageComponent */
-export function isSkillOnlyUserMessage(e: EntryLike): boolean {
-  if (!isUserMessage(e)) return false;
-  const text = entryText(e).trim();
-  if (!text) return false;
-  const match = SKILL_BLOCK_RE.exec(text);
-  return match ? !Boolean(match[4]?.trim()) : false;
-}
-
 /** 用户消息是否以 skill 块开头（无论有无尾随正文，渲染时都会有 skill 组件） */
 export function startsWithSkillBlock(e: EntryLike): boolean {
   if (!isUserMessage(e)) return false;
@@ -204,32 +195,24 @@ export function listPrompts(entries: EntryLike[]): PromptItem[] {
   return prompts;
 }
 
-/**
- * 目标提问（entryId）在「可定位用户提问」中的序号（0-based）。
- * 目标本身不可定位（未找到）时返回 undefined。
- */
-export function locatableUserOrdinal(entries: EntryLike[], entryId: string): number | undefined {
-  let ordinal = 0;
-  for (const e of entries) {
-    if (isUserMessage(e) && e.id === entryId) {
-      return userIsLocatable(e) ? ordinal : undefined;
-    }
-    if (userIsLocatable(e)) ordinal++;
-  }
-  return undefined;
-}
+export type LocateTarget = { kind: "skill" | "user"; ordinal: number };
 
 /**
- * 目标提问在「以 skill 块开头的提问」中的序号（0-based）——与渲染出的 skill 组件一一对应。
- * 目标不以 skill 块开头或未找到时返回 undefined。
+ * 目标提问的定位目标：skill 块开头 → skill 组件；否则 → 用户组件。
+ * 两类序号独立累计（一条 skill+正文的消息会同时计入两边，与渲染出的两类组件分别一一对应）。
+ * 目标不可定位（空文本等）或未找到时返回 undefined。
  */
-export function skillOrdinal(entries: EntryLike[], entryId: string): number | undefined {
-  let ordinal = 0;
+export function locateTarget(entries: EntryLike[], entryId: string): LocateTarget | undefined {
+  let skill = 0;
+  let user = 0;
   for (const e of entries) {
     if (isUserMessage(e) && e.id === entryId) {
-      return startsWithSkillBlock(e) ? ordinal : undefined;
+      if (startsWithSkillBlock(e)) return { kind: "skill", ordinal: skill };
+      if (userIsLocatable(e)) return { kind: "user", ordinal: user };
+      return undefined;
     }
-    if (startsWithSkillBlock(e)) ordinal++;
+    if (startsWithSkillBlock(e)) skill++;
+    if (userIsLocatable(e)) user++;
   }
   return undefined;
 }
@@ -526,13 +509,9 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
         return;
       }
 
-      // 普通提问走用户组件；纯 skill 块提问走 skill 组件（两类各自独立计数）
-      const entry = rendered.find((e) => e.id === prompt.entryId);
-      const skillOnly = entry ? isSkillOnlyUserMessage(entry) : false;
-      const ordinal = skillOnly
-        ? skillOrdinal(rendered, prompt.entryId)
-        : locatableUserOrdinal(rendered, prompt.entryId);
-      if (ordinal === undefined) {
+      // 定位目标：skill 块开头 → skill 组件；否则 → 用户组件（两类序号各自与渲染组件一一对应）
+      const target = locateTarget(rendered, prompt.entryId);
+      if (!target) {
         ctx.ui.notify("无法定位该提问", "warning");
         return;
       }
@@ -548,10 +527,7 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
         return;
       }
 
-      const row = locatePromptRow(containers.doc, containers.chat, contentWidth, {
-        kind: skillOnly ? "skill" : "user",
-        ordinal,
-      });
+      const row = locatePromptRow(containers.doc, containers.chat, contentWidth, target);
       if (row === undefined) {
         ctx.ui.notify("无法定位该提问（组件渲染失败或布局异常）", "warning");
         return;

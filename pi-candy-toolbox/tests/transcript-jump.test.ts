@@ -14,14 +14,12 @@ const {
   findTranscriptContainers,
   formatRelativeTime,
   isSkillComponent,
-  isSkillOnlyUserMessage,
   isUserMessageComponent,
   listPrompts,
-  locatableUserOrdinal,
   locatePromptRow,
+  locateTarget,
   renderHeight,
   scrollToRow,
-  skillOrdinal,
   startsWithSkillBlock,
   transcriptGeometry,
   userIsLocatable,
@@ -118,15 +116,12 @@ test("userIsLocatable follows pi's skill-block rendering rule", () => {
   });
   assert.equal(userIsLocatable(skillUser()), false, "纯 skill 块没有用户组件");
   assert.equal(userIsLocatable(skillUser("剩余内容")), true, "skill 块 + 尾随正文有用户组件");
-  assert.equal(isSkillOnlyUserMessage(skillUser()), true);
-  assert.equal(isSkillOnlyUserMessage(skillUser("剩余内容")), false);
-  assert.equal(isSkillOnlyUserMessage(u1), false);
   assert.equal(startsWithSkillBlock(skillUser()), true);
   assert.equal(startsWithSkillBlock(skillUser("剩余内容")), true, "带尾随正文的 skill 块也渲染 skill 组件");
   assert.equal(startsWithSkillBlock(u1), false);
 });
 
-test("skillOrdinal counts all skill-block-starting prompts", () => {
+test("locateTarget picks kind and ordinal per prompt", () => {
   const skillUser = (remainder?: string) => ({
     type: "message",
     message: {
@@ -137,24 +132,24 @@ test("skillOrdinal counts all skill-block-starting prompts", () => {
   const skillWithRest = { id: "skillA", ...skillUser("剩余内容") };
   const skillOnly = { id: "skillB", ...skillUser() };
   const mixed = [u1, skillWithRest, u2, skillOnly, u3];
-  assert.equal(skillOrdinal(mixed, "skillA"), 0);
-  assert.equal(skillOrdinal(mixed, "skillB"), 1, "skill 组件按全部 skill 块消息计数（含带尾随正文的）");
-  assert.equal(skillOrdinal(mixed, "u3"), undefined, "普通提问不以 skill 块开头");
-  assert.equal(skillOrdinal(mixed, "missing"), undefined);
-});
 
-test("locatableUserOrdinal skips non-locatable prompts", () => {
-  const skillEntry = {
-    type: "message",
-    id: "skill",
-    message: { role: "user", content: [{ type: "text", text: '<skill name="s" location="l">\ncontent\n</skill>' }] },
-  };
-  const withSkill = [u1, skillEntry, u2, a2tool, u3];
-  assert.equal(locatableUserOrdinal(withSkill, "u1"), 0);
-  assert.equal(locatableUserOrdinal(withSkill, "u2"), 1, "纯 skill 提问不计入序号");
-  assert.equal(locatableUserOrdinal(withSkill, "u3"), 2);
-  assert.equal(locatableUserOrdinal(withSkill, "skill"), undefined, "纯 skill 提问自身不可定位");
-  assert.equal(locatableUserOrdinal(ENTRIES, "missing"), undefined);
+  assert.deepEqual(locateTarget(mixed, "skillA"), { kind: "skill", ordinal: 0 });
+  assert.deepEqual(locateTarget(mixed, "skillB"), { kind: "skill", ordinal: 1 }, "skill 序号按全部 skill 块消息计数");
+  assert.deepEqual(locateTarget(mixed, "u1"), { kind: "user", ordinal: 0 });
+  assert.deepEqual(locateTarget(mixed, "u2"), { kind: "user", ordinal: 2 }, "skill+正文 的用户组件也计入 user 序号（与组件遍历一致）");
+  assert.deepEqual(locateTarget(mixed, "u3"), { kind: "user", ordinal: 3 });
+
+  // 纯 skill 提问：走 skill 组件，不影响其后的 user 序号
+  const withSkillOnly = [u1, skillOnly, u2, a2tool, u3];
+  assert.deepEqual(locateTarget(withSkillOnly, "u2"), { kind: "user", ordinal: 1 });
+  assert.deepEqual(locateTarget(withSkillOnly, "u3"), { kind: "user", ordinal: 2 });
+
+  assert.equal(locateTarget(ENTRIES, "missing"), undefined);
+  assert.equal(
+    locateTarget([{ type: "message", id: "empty", message: { role: "user", content: "" } }], "empty"),
+    undefined,
+    "空文本提问不可定位",
+  );
 });
 
 test("listPrompts lists non-empty user prompts newest first", () => {
@@ -341,7 +336,7 @@ test("regular (inline) TUI cannot jump", async () => {
   assert.match(ui.notices[0]?.message ?? "", /仅支持 fullscreen/);
 });
 
-test("skill-only prompts jump to their skill component row", async () => {
+test("skill-block prompts all jump to their skill component row", async () => {
   const skillUser = (remainder?: string) => ({
     type: "message",
     message: {
@@ -353,12 +348,17 @@ test("skill-only prompts jump to their skill component row", async () => {
   const skillOnly = { ...skillUser(), id: "s2", timestamp: NOW - 60_000 };
   const all = [skillWithRest, skillOnly];
   const ui = makeCtx({ entries: all, contextEntries: all, mode: "tui" });
-  // chat：两个 skill 组件各 2 行；第二个（skill-only）首行 = 3 + 2 = 5
+  // chat：两个 skill 组件各 2 行；skill 组件首行：s1=3，s2=5
   const skillComp = { skillBlock: { name: "s" }, updateDisplay: () => {}, render: () => ["", ""] };
   const { tui, scrollCalls } = makeTui({ chatChildren: [skillComp, skillComp] });
+
   await runPicker(ui, tui, "s2");
-  assert.deepEqual(scrollCalls, [5], "跳到第二个 skill 组件首行，而非第一个");
-  assert.deepEqual(ui.notices, []);
+  assert.deepEqual(scrollCalls, [5], "纯 skill 块跳到第二个 skill 组件");
+
+  const ui2 = makeCtx({ entries: all, contextEntries: all, mode: "tui" });
+  const { tui: tui2, scrollCalls: scrollCalls2 } = makeTui({ chatChildren: [skillComp, skillComp] });
+  await runPicker(ui2, tui2, "s1");
+  assert.deepEqual(scrollCalls2, [3], "带尾随正文的 skill 也跳到 skill 组件（与纯 skill 一致）");
 });
 
 test("out-of-bounds computed row refuses to jump", async () => {
