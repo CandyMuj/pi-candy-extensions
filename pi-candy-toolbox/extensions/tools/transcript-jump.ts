@@ -80,6 +80,8 @@ interface PickerCtx {
   mode?: string;
   sessionManager?: {
     getEntries(): unknown[];
+    /** 当前分支（leaf 到根的祖先链，含压缩前缀；不含被 /tree 切走的旧分支） */
+    getBranch?(): unknown[];
     buildContextEntries(): unknown[];
   };
   ui: {
@@ -438,7 +440,9 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
       const sm = ctx.sessionManager;
       if (!sm) return;
 
-      const entries = (sm.getEntries() ?? []) as EntryLike[];
+      // 列表来源 = 当前分支（getBranch）：被 /tree 切走的旧分支不展示；
+      // 其中不在渲染集合（buildContextEntries）里的才是真·被压缩的旧消息
+      const entries = ((sm.getBranch?.() ?? sm.getEntries?.()) ?? []) as EntryLike[];
       const prompts = listPrompts(entries);
       if (prompts.length === 0) {
         ctx.ui.notify("会话里还没有提问", "info");

@@ -3,7 +3,10 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { makeCtx, makeLogger, makePiStub } from "./helpers.ts";
+
+initTheme("dark"); // SelectList/getSelectListTheme 渲染需要已初始化的主题
 
 const {
   default: transcriptJump,
@@ -313,6 +316,47 @@ test("out-of-bounds computed row refuses to jump", async () => {
   await runPicker(ui, tui, "u3");
   assert.deepEqual(scrollCalls, []);
   assert.match(ui.notices[0]?.message ?? "", /越界/);
+});
+
+test("off-branch prompts are excluded from the picker", async () => {
+  const offBranch = {
+    type: "message",
+    id: "off",
+    timestamp: NOW,
+    message: { role: "user", content: [{ type: "text", text: "被切走的旧分支提问" }] },
+  };
+  const ui = makeCtx({ entries: [offBranch, ...ENTRIES], branchEntries: ENTRIES, contextEntries: ENTRIES, mode: "tui" });
+  const { tui, scrollCalls } = makeTui();
+
+  // 打开选择器：旧分支提问不应出现在列表里
+  const { command } = registerTool();
+  const run = command?.handler("", ui.ctx);
+  await Promise.resolve();
+  const component = ui.custom.factory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
+  const rendered = (component as any)?.render?.(120)?.join("\n") ?? "";
+  assert.doesNotMatch(rendered, /被切走的旧分支提问/, "旧分支提问不应展示");
+  assert.match(rendered, /第三个问题/);
+
+  // 即使强行选中旧分支 id（理论上不可能），也不滚动不报错
+  ui.resolveCustom({ value: "off" });
+  await run;
+  assert.deepEqual(scrollCalls, []);
+  assert.deepEqual(ui.notices, []);
+});
+
+test("branch prompts outside the rendered context are marked compacted", async () => {
+  // u1 在当前分支但不在渲染集合（被压缩）→ 列表里标记「已压缩」，选中降级顶部
+  const ui = makeCtx({ entries: ENTRIES, branchEntries: ENTRIES, contextEntries: [u2, a2tool, u3], mode: "tui" });
+  const { command } = registerTool();
+  const run = command?.handler("", ui.ctx);
+  await Promise.resolve();
+  const { tui } = makeTui();
+  const component = ui.custom.factory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
+  const rendered = (component as any)?.render?.(120)?.join("\n") ?? "";
+  assert.match(rendered, /第一个问题[\s\S]*已压缩/);
+  ui.resolveCustom({ value: "u1" });
+  await run;
+  assert.match(ui.notices[0]?.message ?? "", /已被压缩为摘要/);
 });
 
 test("shortcut is registered (configurable) and shares the picker", async () => {

@@ -113,6 +113,8 @@ export interface CtxOptions {
   entries?: unknown[];
   /** buildContextEntries 的返回值（当前渲染集合）；缺省与 entries 相同 */
   contextEntries?: unknown[];
+  /** getBranch 的返回值（当前分支）；缺省与 entries 相同 */
+  branchEntries?: unknown[];
   mode?: string;
   modelRegistry?: any;
   model?: any;
@@ -165,6 +167,7 @@ export function makeCtx(options: CtxOptions = {}): CtxStub {
     },
     sessionManager: {
       getEntries: () => options.entries ?? [],
+      getBranch: () => options.branchEntries ?? options.entries ?? [],
       buildContextEntries: () => options.contextEntries ?? options.entries ?? [],
     },
     modelRegistry: options.modelRegistry,
