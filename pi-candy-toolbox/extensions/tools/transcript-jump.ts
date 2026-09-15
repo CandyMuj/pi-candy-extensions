@@ -248,7 +248,7 @@ export function locatePromptRow(
   doc: { children?: unknown[] } | undefined,
   chat: { children?: unknown[] } | undefined,
   width: number,
-  target: { kind: "user" | "skill"; ordinal: number },
+  target: LocateTarget,
 ): number | undefined {
   if (!doc?.children || !chat?.children) return undefined;
   const docChildren = doc.children;
