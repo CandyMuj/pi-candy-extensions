@@ -142,10 +142,26 @@ function userRendersZone(text: string): boolean {
   return Boolean(match[4]?.trim());
 }
 
-/** 用户提问是否在转录里有可定位的渲染组件（纯 skill 块提问不可定位） */
+/** 用户提问是否有用户组件可定位（纯 skill 块提问渲染成 skill 组件，走另一条定位路径） */
 export function userIsLocatable(e: EntryLike): boolean {
   if (!isUserMessage(e)) return false;
   return userRendersZone(entryText(e));
+}
+
+/** 纯 skill 块提问（无尾随正文）：渲染成 SkillInvocationMessageComponent */
+export function isSkillOnlyUserMessage(e: EntryLike): boolean {
+  if (!isUserMessage(e)) return false;
+  const text = entryText(e).trim();
+  if (!text) return false;
+  const match = SKILL_BLOCK_RE.exec(text);
+  return match ? !Boolean(match[4]?.trim()) : false;
+}
+
+/** 用户消息是否以 skill 块开头（无论有无尾随正文，渲染时都会有 skill 组件） */
+export function startsWithSkillBlock(e: EntryLike): boolean {
+  if (!isUserMessage(e)) return false;
+  const text = entryText(e).trim();
+  return text ? SKILL_BLOCK_RE.test(text) : false;
 }
 
 /** 提问列表项 */
@@ -190,7 +206,7 @@ export function listPrompts(entries: EntryLike[]): PromptItem[] {
 
 /**
  * 目标提问（entryId）在「可定位用户提问」中的序号（0-based）。
- * 目标本身不可定位（纯 skill 块）或未找到时返回 undefined。
+ * 目标本身不可定位（未找到）时返回 undefined。
  */
 export function locatableUserOrdinal(entries: EntryLike[], entryId: string): number | undefined {
   let ordinal = 0;
@@ -203,10 +219,31 @@ export function locatableUserOrdinal(entries: EntryLike[], entryId: string): num
   return undefined;
 }
 
+/**
+ * 目标提问在「以 skill 块开头的提问」中的序号（0-based）——与渲染出的 skill 组件一一对应。
+ * 目标不以 skill 块开头或未找到时返回 undefined。
+ */
+export function skillOrdinal(entries: EntryLike[], entryId: string): number | undefined {
+  let ordinal = 0;
+  for (const e of entries) {
+    if (isUserMessage(e) && e.id === entryId) {
+      return startsWithSkillBlock(e) ? ordinal : undefined;
+    }
+    if (startsWithSkillBlock(e)) ordinal++;
+  }
+  return undefined;
+}
+
 /** pi 的 UserMessageComponent 形状：text + rebuild（助手组件没有这两个） */
 export function isUserMessageComponent(component: unknown): boolean {
   const c = component as { text?: unknown; rebuild?: unknown };
   return typeof c?.text === "string" && typeof c?.rebuild === "function";
+}
+
+/** pi 的 SkillInvocationMessageComponent 形状：skillBlock + updateDisplay */
+export function isSkillComponent(component: unknown): boolean {
+  const c = component as { skillBlock?: unknown; updateDisplay?: unknown };
+  return typeof c?.skillBlock === "object" && c.skillBlock !== null && typeof c?.updateDisplay === "function";
 }
 
 /** 组件渲染行数（0 行也算；渲染抛错返回 undefined） */
@@ -220,15 +257,15 @@ export function renderHeight(component: unknown, width: number): number | undefi
 }
 
 /**
- * 定位第 ordinal 个（0-based）用户提问组件的首行行号。
+ * 定位目标提问组件（用户组件或 skill 组件）的首行行号。
  * doc = documentContainer（header + loadedResources + chat 的顺序），行号 = 前面所有组件的渲染行数之和。
  * 组件或宽度不可用/渲染失败时返回 undefined。
  */
-export function locateUserPromptRow(
+export function locatePromptRow(
   doc: { children?: unknown[] } | undefined,
   chat: { children?: unknown[] } | undefined,
   width: number,
-  ordinal: number,
+  target: { kind: "user" | "skill"; ordinal: number },
 ): number | undefined {
   if (!doc?.children || !chat?.children) return undefined;
   const docChildren = doc.children;
@@ -236,19 +273,23 @@ export function locateUserPromptRow(
   let row = 0;
   let chatSeen = false;
   let userSeen = 0;
+  let skillSeen = 0;
   for (const child of docChildren) {
     if (child === chat) {
       chatSeen = true;
       for (const chatChild of chat.children) {
-        if (isUserMessageComponent(chatChild)) {
-          if (userSeen === ordinal) return row;
-          userSeen++;
-        }
+        const hit =
+          target.kind === "user"
+            ? isUserMessageComponent(chatChild) && userSeen === target.ordinal
+            : isSkillComponent(chatChild) && skillSeen === target.ordinal;
+        if (hit) return row;
+        if (isUserMessageComponent(chatChild)) userSeen++;
+        else if (isSkillComponent(chatChild)) skillSeen++;
         const height = renderHeight(chatChild, width);
         if (height === undefined) return undefined;
         row += height;
       }
-      return undefined; // ordinal 超出实际用户组件数
+      return undefined; // ordinal 超出实际组件数
     }
     const height = renderHeight(child, width);
     if (height === undefined) return undefined;
@@ -485,10 +526,14 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
         return;
       }
 
-      // 纯 skill 块提问没有用户组件 → 不可定位
-      const ordinal = locatableUserOrdinal(rendered, prompt.entryId);
+      // 普通提问走用户组件；纯 skill 块提问走 skill 组件（两类各自独立计数）
+      const entry = rendered.find((e) => e.id === prompt.entryId);
+      const skillOnly = entry ? isSkillOnlyUserMessage(entry) : false;
+      const ordinal = skillOnly
+        ? skillOrdinal(rendered, prompt.entryId)
+        : locatableUserOrdinal(rendered, prompt.entryId);
       if (ordinal === undefined) {
-        ctx.ui.notify("该提问仅包含 skill 调用，没有可跳转的位置", "warning");
+        ctx.ui.notify("无法定位该提问", "warning");
         return;
       }
 
@@ -503,7 +548,10 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
         return;
       }
 
-      const row = locateUserPromptRow(containers.doc, containers.chat, contentWidth, ordinal);
+      const row = locatePromptRow(containers.doc, containers.chat, contentWidth, {
+        kind: skillOnly ? "skill" : "user",
+        ordinal,
+      });
       if (row === undefined) {
         ctx.ui.notify("无法定位该提问（组件渲染失败或布局异常）", "warning");
         return;

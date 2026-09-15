@@ -13,12 +13,16 @@ const {
   JumpDialog,
   findTranscriptContainers,
   formatRelativeTime,
+  isSkillComponent,
+  isSkillOnlyUserMessage,
   isUserMessageComponent,
   listPrompts,
   locatableUserOrdinal,
-  locateUserPromptRow,
+  locatePromptRow,
   renderHeight,
   scrollToRow,
+  skillOrdinal,
+  startsWithSkillBlock,
   transcriptGeometry,
   userIsLocatable,
 } = await import("../extensions/tools/transcript-jump.ts");
@@ -48,7 +52,7 @@ function plainComponent(lines: string[]): unknown {
 }
 
 /** 构造与 ENTRIES 对应的假转录结构（header 2 行 + resources 1 行 + chat 组件） */
-function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boolean } = {}) {
+function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boolean; chatChildren?: unknown[] } = {}) {
   const scrollCalls: number[] = [];
   const renders: number[] = [];
   const scrollView = {
@@ -58,13 +62,14 @@ function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boo
   const header = plainComponent(["", ""]);
   const resources = plainComponent([""]);
   const chat = {
-    children: [
-      userComponent(["", ""]), // u1
-      plainComponent(["", "", ""]), // a1
-      userComponent([""]), // u2
-      plainComponent(["", "", "", ""]), // a2tool
-      userComponent(["", ""]), // u3
-    ],
+    children:
+      options.chatChildren ?? [
+        userComponent(["", ""]), // u1
+        plainComponent(["", "", ""]), // a1
+        userComponent([""]), // u2
+        plainComponent(["", "", "", ""]), // a2tool
+        userComponent(["", ""]), // u3
+      ],
   };
   const doc = { children: [header, resources, chat] };
   const lines = options.contentLines ?? Array.from({ length: 15 }, () => "");
@@ -113,6 +118,29 @@ test("userIsLocatable follows pi's skill-block rendering rule", () => {
   });
   assert.equal(userIsLocatable(skillUser()), false, "纯 skill 块没有用户组件");
   assert.equal(userIsLocatable(skillUser("剩余内容")), true, "skill 块 + 尾随正文有用户组件");
+  assert.equal(isSkillOnlyUserMessage(skillUser()), true);
+  assert.equal(isSkillOnlyUserMessage(skillUser("剩余内容")), false);
+  assert.equal(isSkillOnlyUserMessage(u1), false);
+  assert.equal(startsWithSkillBlock(skillUser()), true);
+  assert.equal(startsWithSkillBlock(skillUser("剩余内容")), true, "带尾随正文的 skill 块也渲染 skill 组件");
+  assert.equal(startsWithSkillBlock(u1), false);
+});
+
+test("skillOrdinal counts all skill-block-starting prompts", () => {
+  const skillUser = (remainder?: string) => ({
+    type: "message",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: `<skill name="s" location="l">\ncontent\n</skill>${remainder ? `\n\n${remainder}` : ""}` }],
+    },
+  });
+  const skillWithRest = { id: "skillA", ...skillUser("剩余内容") };
+  const skillOnly = { id: "skillB", ...skillUser() };
+  const mixed = [u1, skillWithRest, u2, skillOnly, u3];
+  assert.equal(skillOrdinal(mixed, "skillA"), 0);
+  assert.equal(skillOrdinal(mixed, "skillB"), 1, "skill 组件按全部 skill 块消息计数（含带尾随正文的）");
+  assert.equal(skillOrdinal(mixed, "u3"), undefined, "普通提问不以 skill 块开头");
+  assert.equal(skillOrdinal(mixed, "missing"), undefined);
 });
 
 test("locatableUserOrdinal skips non-locatable prompts", () => {
@@ -168,6 +196,14 @@ test("isUserMessageComponent requires text and rebuild", () => {
   assert.equal(isUserMessageComponent(null), false);
 });
 
+test("isSkillComponent requires skillBlock and updateDisplay", () => {
+  assert.equal(isSkillComponent({ skillBlock: { name: "x" }, updateDisplay: () => {} }), true);
+  assert.equal(isSkillComponent({ skillBlock: null, updateDisplay: () => {} }), false);
+  assert.equal(isSkillComponent({ skillBlock: { name: "x" } }), false);
+  assert.equal(isSkillComponent({ updateDisplay: () => {} }), false);
+  assert.equal(isSkillComponent(null), false);
+});
+
 test("renderHeight returns line count or undefined on failure", () => {
   assert.equal(renderHeight({ render: () => ["", ""] }, 80), 2);
   assert.equal(renderHeight({ render: () => [] }, 80), 0);
@@ -176,26 +212,36 @@ test("renderHeight returns line count or undefined on failure", () => {
   assert.equal(renderHeight({}, 80), undefined);
 });
 
-test("locateUserPromptRow accumulates heights up to the ordinal-th user component", () => {
+test("locatePromptRow accumulates heights up to the ordinal-th component", () => {
   const { doc, chat } = makeTui();
   // header 2 + resources 1 = 3 行；u1 从行 3 开始
-  assert.equal(locateUserPromptRow(doc, chat, 100, 0), 3);
+  assert.equal(locatePromptRow(doc, chat, 100, { kind: "user", ordinal: 0 }), 3);
   // u2：3 + u1(2) + a1(3) = 8
-  assert.equal(locateUserPromptRow(doc, chat, 100, 1), 8);
+  assert.equal(locatePromptRow(doc, chat, 100, { kind: "user", ordinal: 1 }), 8);
   // u3：8 + u2(1) + a2tool(4) = 13
-  assert.equal(locateUserPromptRow(doc, chat, 100, 2), 13);
-  assert.equal(locateUserPromptRow(doc, chat, 100, 3), undefined, "序号超出用户组件数");
-  assert.equal(locateUserPromptRow(undefined, chat, 100, 0), undefined);
-  assert.equal(locateUserPromptRow({ children: [] }, chat, 100, 0), undefined);
+  assert.equal(locatePromptRow(doc, chat, 100, { kind: "user", ordinal: 2 }), 13);
+  assert.equal(locatePromptRow(doc, chat, 100, { kind: "user", ordinal: 3 }), undefined, "序号超出用户组件数");
+  assert.equal(locatePromptRow(undefined, chat, 100, { kind: "user", ordinal: 0 }), undefined);
+  assert.equal(locatePromptRow({ children: [] }, chat, 100, { kind: "user", ordinal: 0 }), undefined);
 });
 
-test("locateUserPromptRow fails when a component cannot be rendered", () => {
+test("locatePromptRow locates skill components independently", () => {
+  const skillComp = (lines: string[]) => ({ skillBlock: { name: "s" }, updateDisplay: () => {}, render: () => lines });
+  const doc = { children: [plainComponent(["", ""]), { children: [userComponent(["", ""]), skillComp(["", ""]), plainComponent([""]), skillComp([""])] }] };
+  const chat = doc.children[1] as { children?: unknown[] };
+  // header 2 + u1(2) = 4 → 第一个 skill 从行 4 开始；再 + skill(2) + 中间(1) = 7 → 第二个 skill 行 7
+  assert.equal(locatePromptRow(doc, chat, 100, { kind: "skill", ordinal: 0 }), 4);
+  assert.equal(locatePromptRow(doc, chat, 100, { kind: "skill", ordinal: 1 }), 7);
+  assert.equal(locatePromptRow(doc, chat, 100, { kind: "skill", ordinal: 2 }), undefined);
+});
+
+test("locatePromptRow fails when a component cannot be rendered", () => {
   const doc = { children: [plainComponent(["", ""]), { children: [userComponent([""]), { render: () => { throw new Error("boom"); } }] }] };
   const chat = doc.children[1] as { children?: unknown[] };
-  assert.equal(locateUserPromptRow(doc, chat, 100, 0), 2, "坏组件在目标之后不影响");
+  assert.equal(locatePromptRow(doc, chat, 100, { kind: "user", ordinal: 0 }), 2, "坏组件在目标之后不影响");
   const doc2 = { children: [plainComponent(["", ""]), { children: [{ render: () => { throw new Error("boom"); } }, userComponent([""])] }] };
   const chat2 = doc2.children[1] as { children?: unknown[] };
-  assert.equal(locateUserPromptRow(doc2, chat2, 100, 0), undefined, "坏组件在目标之前则失败");
+  assert.equal(locatePromptRow(doc2, chat2, 100, { kind: "user", ordinal: 0 }), undefined, "坏组件在目标之前则失败");
 });
 
 test("findTranscriptContainers finds doc and the last container as chat", () => {
@@ -295,19 +341,24 @@ test("regular (inline) TUI cannot jump", async () => {
   assert.match(ui.notices[0]?.message ?? "", /仅支持 fullscreen/);
 });
 
-test("skill-only prompts cannot be jumped to", async () => {
-  const skillEntry = {
+test("skill-only prompts jump to their skill component row", async () => {
+  const skillUser = (remainder?: string) => ({
     type: "message",
-    id: "skill",
-    timestamp: NOW,
-    message: { role: "user", content: [{ type: "text", text: '<skill name="s" location="l">\ncontent\n</skill>' }] },
-  };
-  const all = [u1, skillEntry];
+    message: {
+      role: "user",
+      content: [{ type: "text", text: `<skill name="s" location="l">\ncontent\n</skill>${remainder ? `\n\n${remainder}` : ""}` }],
+    },
+  });
+  const skillWithRest = { ...skillUser("剩余内容"), id: "s1", timestamp: NOW - 2 * 60_000 };
+  const skillOnly = { ...skillUser(), id: "s2", timestamp: NOW - 60_000 };
+  const all = [skillWithRest, skillOnly];
   const ui = makeCtx({ entries: all, contextEntries: all, mode: "tui" });
-  const { tui, scrollCalls } = makeTui();
-  await runPicker(ui, tui, "skill");
-  assert.deepEqual(scrollCalls, []);
-  assert.match(ui.notices[0]?.message ?? "", /仅包含 skill/);
+  // chat：两个 skill 组件各 2 行；第二个（skill-only）首行 = 3 + 2 = 5
+  const skillComp = { skillBlock: { name: "s" }, updateDisplay: () => {}, render: () => ["", ""] };
+  const { tui, scrollCalls } = makeTui({ chatChildren: [skillComp, skillComp] });
+  await runPicker(ui, tui, "s2");
+  assert.deepEqual(scrollCalls, [5], "跳到第二个 skill 组件首行，而非第一个");
+  assert.deepEqual(ui.notices, []);
 });
 
 test("out-of-bounds computed row refuses to jump", async () => {
