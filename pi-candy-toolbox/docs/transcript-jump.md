@@ -1,6 +1,6 @@
 # transcript-jump — 全屏模式提问跳转
 
-> 工具 id：`transcript-jump` ｜ 命令：`/candy-jump` ｜ 快捷键：`ctrl+shift+j`（可配置）
+> 工具 id：`transcript-jump` ｜ 命令：`/candy-jump` ｜ 快捷键：`alt+j`（可配置）
 
 ## 功能
 
@@ -24,7 +24,7 @@
 /candy-jump          打开提问跳转列表
 ```
 
-快捷键默认 `ctrl+shift+j`，可配置（见下）。
+快捷键默认 `alt+j`，可配置（见下）。注意 Windows 终端会把 `Ctrl+Shift+字母` 折叠成 `Ctrl+字母`（例如 `Ctrl+Shift+J` 到达时是 `Ctrl+J`，pi 里是「插入换行」），自定义键位时请避开这类组合与终端保留组合。
 
 ## 配置项
 
@@ -34,7 +34,7 @@
 {
   "transcript-jump": {
     "debug": false,
-    "shortcut": "ctrl+shift+j"
+    "shortcut": "alt+j"
   }
 }
 ```
@@ -42,7 +42,7 @@
 | 配置项 | 默认 | 说明 |
 |---|---|---|
 | `debug` | `false` | 调试日志开关：与插件级 `$toolbox.debug` 为「或」关系，任一为 `true` 即写 `<logDir>/transcript-jump.log`（跳转/降级/失败原因）；两者都为 `false` 时连日志目录都不会创建 |
-| `shortcut` | `"ctrl+shift+j"` | 打开提问列表的快捷键（KeyId 格式，见 pi keybindings 文档；与已有键位冲突时改这里） |
+| `shortcut` | `"alt+j"` | 打开提问列表的快捷键（KeyId 格式，见 pi keybindings 文档；避开 Ctrl+Shift+字母与终端保留组合，冲突时改这里） |
 
 ## 方案逻辑
 

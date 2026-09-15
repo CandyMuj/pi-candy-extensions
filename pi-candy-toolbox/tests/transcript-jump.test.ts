@@ -78,7 +78,7 @@ function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boo
 function registerTool(config: { shortcut?: string } = {}) {
   const stub = makePiStub();
   const log = makeLogger();
-  transcriptJump.register(stub.pi, { shortcut: "ctrl+shift+j", debug: false, ...config }, log.log);
+  transcriptJump.register(stub.pi, { shortcut: "alt+j", debug: false, ...config }, log.log);
   return { stub, log, command: stub.commands.get("candy-jump") };
 }
 
@@ -317,17 +317,17 @@ test("out-of-bounds computed row refuses to jump", async () => {
 
 test("shortcut is registered (configurable) and shares the picker", async () => {
   const { stub } = registerTool();
-  assert.equal(stub.shortcuts.has("ctrl+shift+j"), true);
-  assert.match(stub.shortcuts.get("ctrl+shift+j")?.description ?? "", /提问跳转/);
+  assert.equal(stub.shortcuts.has("alt+j"), true);
+  assert.match(stub.shortcuts.get("alt+j")?.description ?? "", /提问跳转/);
 
-  const custom = registerTool({ shortcut: "alt+j" });
-  assert.equal(custom.stub.shortcuts.has("alt+j"), true);
-  assert.equal(custom.stub.shortcuts.has("ctrl+shift+j"), false);
+  const custom = registerTool({ shortcut: "alt+m" });
+  assert.equal(custom.stub.shortcuts.has("alt+m"), true);
+  assert.equal(custom.stub.shortcuts.has("alt+j"), false);
 
   // 快捷键 handler 与命令共用同一入口
   const ui = makeCtx({ entries: ENTRIES, contextEntries: ENTRIES, mode: "tui" });
   const { tui, scrollCalls } = makeTui();
-  const run = stub.shortcuts.get("ctrl+shift+j")?.handler(ui.ctx);
+  const run = stub.shortcuts.get("alt+j")?.handler(ui.ctx);
   await Promise.resolve();
   const component = ui.custom.factory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
   assert.equal(typeof (component as any)?.render, "function");

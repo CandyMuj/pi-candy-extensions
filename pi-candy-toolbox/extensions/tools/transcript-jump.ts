@@ -1,7 +1,10 @@
 /**
  * transcript-jump — 全屏模式下跳转到任意一条历史提问
  *
- * 命令：/candy-jump（默认快捷键 ctrl+shift+j，配置 shortcut 可改）
+ * 命令：/candy-jump（默认快捷键 alt+j，配置 shortcut 可改）
+ *
+ * 注意：Windows 终端会把 Ctrl+Shift+字母折叠成 Ctrl+字母（如 Ctrl+Shift+J = Ctrl+J = 插入换行），
+ * 因此默认键位避开 Ctrl+Shift+字母组合。
  *
  * 选择器列出会话全部用户提问（序号 + 预览 + 相对时间），最近的排在前面，支持输入过滤与 ←/→ 翻页，
  * 样式与 pi 原生 select 一致（替换编辑器区域全宽渲染，非弹窗）。
@@ -428,7 +431,7 @@ export class JumpDialog extends Container implements Focusable {
 const tool: ToolDefinition<TranscriptJumpConfig> = {
   id: "transcript-jump",
   description: "打开提问列表并跳转到对应位置（仅全屏）：/candy-jump",
-  defaultConfig: { debug: false, shortcut: "ctrl+shift+j" },
+  defaultConfig: { debug: false, shortcut: "alt+j" },
   register(pi: ExtensionAPI, config: TranscriptJumpConfig, log: Logger): void {
     const openPicker = async (ctx: PickerCtx): Promise<void> => {
       if (ctx.mode !== "tui") return;
