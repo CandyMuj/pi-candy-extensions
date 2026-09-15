@@ -19,12 +19,14 @@ import { createLogger } from "./core/log.ts";
 import hello from "./tools/hello.ts";
 import sessionTitle from "./tools/session-title.ts";
 import clickCursor from "./tools/click-cursor.ts";
+import transcriptJump from "./tools/transcript-jump.ts";
 
 /** 工具清单：新增工具在此登记（目录工具 import 后加一行，例如：myTool,） */
 const TOOLS: ToolDefinition<object>[] = [
   hello,
   sessionTitle,
   clickCursor,
+  transcriptJump,
   // import 后在此加一行，例如：myTool,（目录工具写 import myTool from "./tools/my-tool"，
   // jiti 会自动解析目录下的 index.ts）
 ];

@@ -41,16 +41,22 @@ export interface CommandStub {
   getArgumentCompletions?: (prefix: string) => any;
 }
 
-/** pi API stub：记录注册的命令与事件 handler */
+/** pi API stub：记录注册的命令、快捷键与事件 handler */
+export interface ShortcutStub {
+  description?: string;
+  handler: (ctx: any) => any;
+}
 export interface PiStub {
   pi: ExtensionAPI;
   commands: Map<string, CommandStub>;
+  shortcuts: Map<string, ShortcutStub>;
   handlers: Map<string, Array<(event: any, ctx: any) => any>>;
   setNames: string[];
 }
 
 export function makePiStub(sessionName?: string): PiStub {
   const commands = new Map<string, CommandStub>();
+  const shortcuts = new Map<string, ShortcutStub>();
   const handlers = new Map<string, Array<(event: any, ctx: any) => any>>();
   const setNames: string[] = [];
   let name = sessionName;
@@ -58,6 +64,9 @@ export function makePiStub(sessionName?: string): PiStub {
   const pi = {
     registerCommand: (commandName: string, def: CommandStub) => {
       commands.set(commandName, def);
+    },
+    registerShortcut: (key: string, def: ShortcutStub) => {
+      shortcuts.set(key, def);
     },
     registerTool: () => {},
     on: (event: string, handler: (event: any, ctx: any) => any) => {
@@ -70,7 +79,7 @@ export function makePiStub(sessionName?: string): PiStub {
     },
   };
 
-  return { pi: pi as unknown as ExtensionAPI, commands, handlers, setNames };
+  return { pi: pi as unknown as ExtensionAPI, commands, shortcuts, handlers, setNames };
 }
 
 /** 测试用 tui 引用（widget 工厂借用、onTerminalInput 落点） */
@@ -89,10 +98,21 @@ export interface CtxStub {
   widgetKeys: string[];
   terminalHandlers: Array<(data: string) => unknown>;
   tui: TuiStub;
+  custom: CustomStub;
+  /** 完成 ui.custom 的选择（等价于调用工厂收到的 done） */
+  resolveCustom: (value: any) => void;
+}
+
+/** ctx.ui.custom 的桩：记录工厂与选项 */
+export interface CustomStub {
+  factory?: (...args: any[]) => unknown;
+  options?: unknown;
 }
 
 export interface CtxOptions {
   entries?: unknown[];
+  /** buildContextEntries 的返回值（当前渲染集合）；缺省与 entries 相同 */
+  contextEntries?: unknown[];
   mode?: string;
   modelRegistry?: any;
   model?: any;
@@ -105,6 +125,11 @@ export function makeCtx(options: CtxOptions = {}): CtxStub {
   const statuses = new Map<string, string | undefined>();
   const widgetKeys: string[] = [];
   const terminalHandlers: Array<(data: string) => unknown> = [];
+  const custom: CustomStub = {};
+  let resolveCustom!: (value: any) => void;
+  const customPromise = new Promise<any>((resolve) => {
+    resolveCustom = resolve;
+  });
   const tui: TuiStub = {
     children: options.editor === undefined ? [] : [{ children: [options.editor] }],
     inputListeners: new Set(),
@@ -132,11 +157,19 @@ export function makeCtx(options: CtxOptions = {}): CtxStub {
         terminalHandlers.push(handler);
         return () => {};
       },
+      custom: (factory: (...args: any[]) => unknown, customOptions?: unknown) => {
+        custom.factory = factory;
+        custom.options = customOptions;
+        return customPromise;
+      },
     },
-    sessionManager: { getEntries: () => options.entries ?? [] },
+    sessionManager: {
+      getEntries: () => options.entries ?? [],
+      buildContextEntries: () => options.contextEntries ?? options.entries ?? [],
+    },
     modelRegistry: options.modelRegistry,
     model: options.model,
   };
 
-  return { ctx, notices, statuses, widgetKeys, terminalHandlers, tui };
+  return { ctx, notices, statuses, widgetKeys, terminalHandlers, tui, custom, resolveCustom };
 }
