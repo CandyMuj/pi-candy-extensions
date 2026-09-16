@@ -34,7 +34,8 @@
 {
   "transcript-jump": {
     "debug": false,
-    "shortcut": "alt+j"
+    "shortcut": "alt+j",
+    "autoLocate": true
   }
 }
 ```
@@ -43,6 +44,7 @@
 |---|---|---|
 | `debug` | `false` | 调试日志开关：与插件级 `$toolbox.debug` 为「或」关系，任一为 `true` 即写 `<logDir>/transcript-jump.log`（跳转/降级/失败原因）；两者都为 `false` 时连日志目录都不会创建 |
 | `shortcut` | `"alt+j"` | 打开提问列表的快捷键（KeyId 格式，见 pi keybindings 文档；避开 Ctrl+Shift+字母与终端保留组合，冲突时改这里） |
+| `autoLocate` | `true` | 打开选择器时**异步**预选当前视口附近的提问（不阻塞打开）；关闭则始终默认选中最新，且不做任何组件遍历 |
 
 ## 方案逻辑
 
@@ -70,11 +72,15 @@
 - **仅 fullscreen 可跳**（alt-screen 才有转录行与 ScrollView）；regular（inline）/ print / json / rpc 不可用（regular 下列表能开，选中后提示）；
 - **`/compact` 后**旧消息不渲染：旧提问降级到顶部摘要处，见上；
 - 依赖 tui 内部结构（`tui.children` 的 document/chat 容器顺序与组件 `render` 测高，无官方公开 API），与 click-cursor 同级别的**无回归保证**：行号越界/组件渲染失败时直接报错，pi 升级后建议跑一遍 `npm test` 回归；
+### 定位与跳转
+
+- **跳转**：skill 块开头的提问一律定位到 skill 组件，其余定位到用户组件（`locateTarget` 返回 `{ kind, ordinal }`，两类序号各自与渲染组件一一对应）；
+- **自动定位（`autoLocate`）**：打开选择器时异步读取当前 `scrollTop`，用同一次组件遍历取全部提问首行（`collectPromptRows`），取「首行 ≤ scrollTop」的最近一条提问预选（`promptIdAtRow`）；定位失败静默回退默认选中最新；用户已输入过滤或移动过选择时不覆盖；
 - 不依赖 OSC 133 标记：pi 改标记规则、部分插件 strip 标记、`/btw` 侧线程等都不影响定位。
 
 ## 实现要点
 
 - 单文件 `extensions/tools/transcript-jump.ts`；`JumpDialog` 用 `Container + Input + SelectList` 拼装，**非 overlay**（`ctx.ui.custom` 直接替换编辑器区域，与原生 select 同款形态），左右翻页按 pi 会话选择器同款键位匹配（`tui.editor.cursorLeft/Right` + `tui.select.pageUp/pageDown`）
-- 核心纯函数（可单测）：`listPrompts` / `userIsLocatable` / `startsWithSkillBlock` / `locateTarget` / `isUserMessageComponent` / `isSkillComponent` / `renderHeight` / `locatePromptRow` / `findTranscriptContainers` / `transcriptGeometry` / `formatRelativeTime` / `scrollToRow`
+- 核心纯函数（可单测）：`listPrompts` / `userIsLocatable` / `startsWithSkillBlock` / `locateTarget` / `collectPromptRows` / `promptIdAtRow` / `isUserMessageComponent` / `isSkillComponent` / `renderHeight` / `locatePromptRow` / `findTranscriptContainers` / `transcriptGeometry` / `formatRelativeTime` / `scrollToRow`
 - 命令与快捷键共用同一个 `openPicker` 入口；`ctx.mode !== "tui"` 时直接返回
 - 依赖：运行时使用 pi 提供的 `@earendil-works/pi-tui`（测试环境作为 devDependency 安装）

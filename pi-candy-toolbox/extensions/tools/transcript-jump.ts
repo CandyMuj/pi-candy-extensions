@@ -40,6 +40,8 @@ export interface TranscriptJumpConfig {
   debug: boolean;
   /** 打开提问列表的快捷键（KeyId 格式，见 pi keybindings 文档） */
   shortcut: string;
+  /** 打开选择器时异步预选当前视口附近的提问（不阻塞打开）；关闭则始终默认选中最新，且不做任何组件遍历 */
+  autoLocate: boolean;
 }
 
 /** 预览单行显示宽度上限（防超长消息占内存；正常提问远小于此，视觉截断交给 SelectList 按终端宽度做） */
@@ -72,6 +74,7 @@ interface TuiLike {
     | {
         scrollTo(row: number): void;
         getContentWidth?(width: number): number;
+        scrollTop?: number;
       }
     | undefined;
 }
@@ -240,46 +243,84 @@ export function renderHeight(component: unknown, width: number): number | undefi
 }
 
 /**
- * 定位目标提问组件（用户组件或 skill 组件）的首行行号。
- * doc = documentContainer（header + loadedResources + chat 的顺序），行号 = 前面所有组件的渲染行数之和。
- * 组件或宽度不可用/渲染失败时返回 undefined。
+ * 一次组件遍历得到的提问首行行号（0-based 内容坐标）。
+ * user/skill 两类分别按出现顺序，与 locateTarget 的两类序号一一对应。
  */
+export interface PromptRows {
+  user: number[];
+  skill: number[];
+}
+
+/**
+ * 遍历转录组件树，记录每个用户组件与 skill 组件的首行行号。
+ * doc = documentContainer（header + loadedResources + chat 的顺序），行号 = 前面所有组件的渲染行数之和。
+ * target 提供时命中目标即提前返回（与旧 locatePromptRow 语义一致：目标之后的组件不参与测高）；
+ * 省略则全量遍历（自动定位用）。组件或宽度不可用/渲染失败时返回 undefined。
+ */
+export function collectPromptRows(
+  doc: { children?: unknown[] } | undefined,
+  chat: { children?: unknown[] } | undefined,
+  width: number,
+  target?: LocateTarget,
+): PromptRows | undefined {
+  if (!doc?.children || !chat?.children) return undefined;
+  const docChildren = doc.children;
+  // header + loadedResources + chat：chat 之前的所有兄弟高度都算入偏移
+  let row = 0;
+  const userRows: number[] = [];
+  const skillRows: number[] = [];
+  for (const child of docChildren) {
+    if (child === chat) {
+      for (const chatChild of chat.children) {
+        if (isUserMessageComponent(chatChild)) userRows.push(row);
+        else if (isSkillComponent(chatChild)) skillRows.push(row);
+        if (target && (target.kind === "user" ? userRows.length > target.ordinal : skillRows.length > target.ordinal)) {
+          return { user: userRows, skill: skillRows };
+        }
+        const height = renderHeight(chatChild, width);
+        if (height === undefined) return undefined;
+        row += height;
+      }
+      return { user: userRows, skill: skillRows };
+    }
+    const height = renderHeight(child, width);
+    if (height === undefined) return undefined;
+    row += height;
+  }
+  return undefined; // chat 不在 doc 的子节点里
+}
+
+/** 定位目标提问组件（用户组件或 skill 组件）的首行行号；不可定位/渲染失败时返回 undefined */
 export function locatePromptRow(
   doc: { children?: unknown[] } | undefined,
   chat: { children?: unknown[] } | undefined,
   width: number,
   target: LocateTarget,
 ): number | undefined {
-  if (!doc?.children || !chat?.children) return undefined;
-  const docChildren = doc.children;
-  // header + loadedResources + chat：chat 之前的所有兄弟高度都算入偏移
-  let row = 0;
-  let chatSeen = false;
-  let userSeen = 0;
-  let skillSeen = 0;
-  for (const child of docChildren) {
-    if (child === chat) {
-      chatSeen = true;
-      for (const chatChild of chat.children) {
-        const hit =
-          target.kind === "user"
-            ? isUserMessageComponent(chatChild) && userSeen === target.ordinal
-            : isSkillComponent(chatChild) && skillSeen === target.ordinal;
-        if (hit) return row;
-        if (isUserMessageComponent(chatChild)) userSeen++;
-        else if (isSkillComponent(chatChild)) skillSeen++;
-        const height = renderHeight(chatChild, width);
-        if (height === undefined) return undefined;
-        row += height;
-      }
-      return undefined; // ordinal 超出实际组件数
-    }
-    const height = renderHeight(child, width);
-    if (height === undefined) return undefined;
-    row += height;
+  const rows = collectPromptRows(doc, chat, width, target);
+  if (!rows) return undefined;
+  return target.kind === "user" ? rows.user[target.ordinal] : rows.skill[target.ordinal];
+}
+
+/**
+ * 当前视口附近的提问：取「首行 ≤ scrollTop」的最近一条（即视口顶部之前的提问）。
+ * 计数与 locateTarget 完全一致（skill+正文 同时消费 user/skill 两个序号）。
+ * 视口还在摘要区等无匹配时返回 undefined。
+ */
+export function promptIdAtRow(entries: EntryLike[], rows: PromptRows, scrollTop: number): string | undefined {
+  let user = 0;
+  let skill = 0;
+  let found: string | undefined;
+  for (const e of entries) {
+    if (!isUserMessage(e)) continue;
+    const skillStart = startsWithSkillBlock(e);
+    const locatable = userIsLocatable(e);
+    const row = skillStart ? rows.skill[skill] : locatable ? rows.user[user] : undefined;
+    if (row !== undefined && row <= scrollTop) found = e.id;
+    if (skillStart) skill++;
+    if (locatable) user++;
   }
-  if (!chatSeen) return undefined;
-  return undefined;
+  return found;
 }
 
 /** 在 tui.children 里找 documentContainer 与 chatContainer（结构：document 的最后一个容器 = chat） */
@@ -292,8 +333,8 @@ export function findTranscriptContainers(tui: TuiLike): { doc: { children?: unkn
   return { doc: doc as { children?: unknown[] }, chat: chat as { children?: unknown[] } };
 }
 
-/** 取转录内容行与内容宽度（用于边界校验与测高宽度） */
-export function transcriptGeometry(tui: TuiLike): { lines?: string[]; contentWidth?: number } {
+/** 取转录内容行与内容宽度（用于边界校验与测高宽度），并带回当前滚动位置（自动定位用） */
+export function transcriptGeometry(tui: TuiLike): { lines?: string[]; contentWidth?: number; scrollTop?: number } {
   const layout = tui?.currentLayout;
   const scrollView = tui?.getPrimaryScrollView?.();
   if (!layout || !scrollView) return {};
@@ -317,7 +358,7 @@ export function transcriptGeometry(tui: TuiLike): { lines?: string[]; contentWid
   visit((layout as { root?: unknown }).root ?? layout);
   const contentWidth =
     rectWidth === undefined ? undefined : typeof scrollView.getContentWidth === "function" ? scrollView.getContentWidth(rectWidth) : rectWidth;
-  return { lines, contentWidth };
+  return { lines, contentWidth, scrollTop: typeof scrollView.scrollTop === "number" ? scrollView.scrollTop : undefined };
 }
 
 /** 滚动到指定行（内容坐标）；成功返回 true */
@@ -421,6 +462,14 @@ export class JumpDialog extends Container implements Focusable {
     this.children[this.listSlot] = this.list;
   }
 
+  /** 异步定位完成后预选列表项；用户已输入过滤或移动过选择时不覆盖（尊重其操作） */
+  setInitialIndex(index: number): void {
+    if (index <= 0) return; // 默认就是最新项
+    if (this.searchInput.getValue().trim() !== "" || this.currentIndex !== 0) return;
+    this.list.setSelectedIndex(index);
+    this.currentIndex = index;
+  }
+
   private page(delta: number): void {
     const max = Math.max(0, this.filteredItems.length - 1);
     const next = Math.min(max, Math.max(0, this.currentIndex + delta * this.pageSize));
@@ -457,7 +506,7 @@ export class JumpDialog extends Container implements Focusable {
 const tool: ToolDefinition<TranscriptJumpConfig> = {
   id: "transcript-jump",
   description: "打开提问列表并跳转到对应位置（仅全屏）：/candy-jump",
-  defaultConfig: { debug: false, shortcut: "alt+j" },
+  defaultConfig: { debug: false, shortcut: "alt+j", autoLocate: true },
   register(pi: ExtensionAPI, config: TranscriptJumpConfig, log: Logger): void {
     const openPicker = async (ctx: PickerCtx): Promise<void> => {
       if (ctx.mode !== "tui") return;
@@ -483,12 +532,35 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
         description: `${formatRelativeTime(p.timestamp)}${renderedIds.has(p.entryId) ? "" : " ｜已压缩"}`,
       }));
 
+      // 异步计算「当前视口附近的提问」（autoLocate 开启时预选列表项；定位失败静默回退最新项）
+      const locateInitialEntry = async (): Promise<string | undefined> => {
+        try {
+          if (!tuiRef) return undefined;
+          const { contentWidth, scrollTop } = transcriptGeometry(tuiRef);
+          if (contentWidth === undefined || scrollTop === undefined) return undefined;
+          const containers = findTranscriptContainers(tuiRef);
+          if (!containers) return undefined;
+          const rows = collectPromptRows(containers.doc, containers.chat, contentWidth);
+          return rows ? promptIdAtRow(rendered, rows, scrollTop) : undefined;
+        } catch {
+          return undefined; // 自动定位失败不影响选择器使用
+        }
+      };
+
       let tuiRef: TuiLike | undefined;
       // 不用 overlay：与 pi 原生 select 一致，替换编辑器区域全宽渲染（非弹窗）
       const selected = await ctx.ui.custom<SelectItem>(
         (tui, theme, _keybindings, done) => {
           tuiRef = tui as TuiLike;
-          return new JumpDialog(`提问跳转（${items.length} 条）`, items, theme as ThemeLike, (item) => done(item), () => done(null));
+          const dialog = new JumpDialog(`提问跳转（${items.length} 条）`, items, theme as ThemeLike, (item) => done(item), () => done(null));
+          if (config.autoLocate) {
+            void locateInitialEntry().then((entryId) => {
+              if (!entryId) return;
+              const index = prompts.findIndex((p) => p.entryId === entryId);
+              if (index > 0) dialog.setInitialIndex(index);
+            });
+          }
+          return dialog;
         },
       );
       if (!selected || !tuiRef) return;

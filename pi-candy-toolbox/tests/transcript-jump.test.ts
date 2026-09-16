@@ -18,6 +18,7 @@ const {
   listPrompts,
   locatePromptRow,
   locateTarget,
+  promptIdAtRow,
   renderHeight,
   scrollToRow,
   startsWithSkillBlock,
@@ -50,12 +51,13 @@ function plainComponent(lines: string[]): unknown {
 }
 
 /** 构造与 ENTRIES 对应的假转录结构（header 2 行 + resources 1 行 + chat 组件） */
-function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boolean; chatChildren?: unknown[] } = {}) {
+function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boolean; chatChildren?: unknown[]; scrollTop?: number } = {}) {
   const scrollCalls: number[] = [];
   const renders: number[] = [];
   const scrollView = {
     scrollTo: (row: number) => scrollCalls.push(row),
     getContentWidth: (width: number) => (options.widths === false ? width + 1 : width),
+    scrollTop: options.scrollTop ?? 0,
   };
   const header = plainComponent(["", ""]);
   const resources = plainComponent([""]);
@@ -81,10 +83,10 @@ function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boo
   return { tui, scrollCalls, renders, chat, doc };
 }
 
-function registerTool(config: { shortcut?: string } = {}) {
+function registerTool(config: { shortcut?: string; autoLocate?: boolean } = {}) {
   const stub = makePiStub();
   const log = makeLogger();
-  transcriptJump.register(stub.pi, { shortcut: "alt+j", debug: false, ...config }, log.log);
+  transcriptJump.register(stub.pi, { shortcut: "alt+j", debug: false, autoLocate: true, ...config }, log.log);
   return { stub, log, command: stub.commands.get("candy-jump") };
 }
 
@@ -237,6 +239,46 @@ test("locatePromptRow fails when a component cannot be rendered", () => {
   const doc2 = { children: [plainComponent(["", ""]), { children: [{ render: () => { throw new Error("boom"); } }, userComponent([""])] }] };
   const chat2 = doc2.children[1] as { children?: unknown[] };
   assert.equal(locatePromptRow(doc2, chat2, 100, { kind: "user", ordinal: 0 }), undefined, "坏组件在目标之前则失败");
+});
+
+test("promptIdAtRow picks the prompt whose first row is at or above scrollTop", () => {
+  // makeTui 默认行：u1=3，u2=8，u3=13
+  const rows = { user: [3, 8, 13], skill: [] };
+  assert.equal(promptIdAtRow(ENTRIES, rows, 0), undefined, "视口还在摘要区（顶部之前）");
+  assert.equal(promptIdAtRow(ENTRIES, rows, 3), "u1");
+  assert.equal(promptIdAtRow(ENTRIES, rows, 7), "u1", "两条提问之间归上方那条");
+  assert.equal(promptIdAtRow(ENTRIES, rows, 8), "u2", "首行与 scrollTop 重合算命中");
+  assert.equal(promptIdAtRow(ENTRIES, rows, 12), "u2");
+  assert.equal(promptIdAtRow(ENTRIES, rows, 999), "u3", "滚到底选最后一条提问");
+  assert.equal(promptIdAtRow(ENTRIES, rows, 0), undefined);
+});
+
+test("promptIdAtRow counts skill components independently", () => {
+  const skillUser = (remainder?: string) => ({
+    type: "message",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: `<skill name="s" location="l">\ncontent\n</skill>${remainder ? `\n\n${remainder}` : ""}` }],
+    },
+  });
+  const skillWithRest = { id: "skillA", ...skillUser("剩余内容") };
+  const skillOnly = { id: "skillB", ...skillUser() };
+  const mixed = [u1, skillWithRest, u2, skillOnly, u3];
+  // 渲染对应：user 组件（u1 行 3、skillWithRest 行 7、u2 行 10、u3 行 14）；skill 组件（skillWithRest 行 5、skillOnly 行 12）
+  const rows = { user: [3, 7, 10, 14], skill: [5, 12] };
+  assert.equal(promptIdAtRow(mixed, rows, 5), "skillA", "skill 提问锚定其 skill 组件行");
+  assert.equal(promptIdAtRow(mixed, rows, 8), "skillA");
+  assert.equal(promptIdAtRow(mixed, rows, 12), "skillB");
+  assert.equal(promptIdAtRow(mixed, rows, 13), "skillB");
+  assert.equal(promptIdAtRow(mixed, rows, 14), "u3");
+});
+
+test("transcriptGeometry returns current scrollTop", () => {
+  const { tui } = makeTui({ scrollTop: 42 });
+  const geom = transcriptGeometry(tui);
+  assert.equal(geom.scrollTop, 42);
+  const { tui: tui2 } = makeTui();
+  assert.equal(transcriptGeometry(tui2).scrollTop, 0);
 });
 
 test("findTranscriptContainers finds doc and the last container as chat", () => {
@@ -429,4 +471,36 @@ test("shortcut is registered (configurable) and shares the picker", async () => 
   ui.resolveCustom({ value: "u2" });
   await run;
   assert.deepEqual(scrollCalls, [8], "u2 首行 = 3 + u1(2) + a1(3)");
+});
+
+test("autoLocate preselects the prompt near the current scroll position", async () => {
+  const ui = makeCtx({ entries: ENTRIES, contextEntries: ENTRIES, mode: "tui" });
+  const { command } = registerTool();
+  const run = command?.handler("", ui.ctx);
+  await Promise.resolve();
+  // scrollTop = 8 → u2（列表倒序中 index 1）
+  const { tui } = makeTui({ scrollTop: 8 });
+  const component: any = ui.custom.factory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
+  await new Promise((r) => setTimeout(r, 0)); // 等异步定位完成
+  assert.equal(component.list.selectedIndex, 1, "自动选中视口附近的提问 u2");
+  ui.resolveCustom(null);
+  await run;
+});
+
+test("autoLocate off keeps default selection and skips traversal", async () => {
+  const ui = makeCtx({ entries: ENTRIES, contextEntries: ENTRIES, mode: "tui" });
+  const { command } = registerTool({ autoLocate: false });
+  const run = command?.handler("", ui.ctx);
+  await Promise.resolve();
+  // chat 组件全部渲染失败：若做了组件遍历会得到 undefined，但 autoLocate 关闭时不应发生任何遍历
+  const { tui } = makeTui({
+    scrollTop: 8,
+    chatChildren: [{ render: () => { throw new Error("boom"); } }],
+  });
+  const component: any = ui.custom.factory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(component.list.selectedIndex, 0, "保持默认选中最新");
+  ui.resolveCustom(null);
+  await run;
+  assert.deepEqual(ui.notices, [], "无任何报错");
 });
