@@ -462,12 +462,13 @@ export class JumpDialog extends Container implements Focusable {
     this.children[this.listSlot] = this.list;
   }
 
-  /** 异步定位完成后预选列表项；用户已输入过滤或移动过选择时不覆盖（尊重其操作） */
-  setInitialIndex(index: number): void {
-    if (index <= 0) return; // 默认就是最新项
-    if (this.searchInput.getValue().trim() !== "" || this.currentIndex !== 0) return;
+  /** 异步定位完成后预选列表项；用户已输入过滤或移动过选择时不覆盖（尊重其操作）。返回是否已应用（用于决定是否重绘） */
+  setInitialIndex(index: number): boolean {
+    if (index <= 0) return false; // 默认就是最新项
+    if (this.searchInput.getValue().trim() !== "" || this.currentIndex !== 0) return false;
     this.list.setSelectedIndex(index);
     this.currentIndex = index;
+    return true;
   }
 
   private page(delta: number): void {
@@ -554,11 +555,14 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
           tuiRef = tui as TuiLike;
           const dialog = new JumpDialog(`提问跳转（${items.length} 条）`, items, theme as ThemeLike, (item) => done(item), () => done(null));
           if (config.autoLocate) {
-            void locateInitialEntry().then((entryId) => {
-              if (!entryId) return;
-              const index = prompts.findIndex((p) => p.entryId === entryId);
-              if (index > 0) dialog.setInitialIndex(index);
-            });
+            // setTimeout 把重遍历推迟到选择器首帧渲染之后：打开不被组件测高阻塞（SelectList.invalidate 为空操作，应用后需 requestRender）
+            setTimeout(() => {
+              void locateInitialEntry().then((entryId) => {
+                if (!entryId) return;
+                const index = prompts.findIndex((p) => p.entryId === entryId);
+                if (dialog.setInitialIndex(index)) tuiRef?.requestRender?.();
+              });
+            }, 0);
           }
           return dialog;
         },
