@@ -15,6 +15,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "../core/config.ts";
 import type { Logger } from "../core/log.ts";
+import { entryText, type EntryLike } from "../core/entries.ts";
 import { updateToolConfig } from "../core/config.ts";
 
 export interface SessionTitleConfig {
@@ -36,15 +37,6 @@ const LLM_TIMEOUT_MS = 30_000;
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 // ── 局部最小类型（pi-ai / pi 结构子集，零额外依赖）──────────
-interface EntryLike {
-  /** 会话 entry 类型，仅处理 "message"（真实结构为 { type, message } 嵌套） */
-  type?: string;
-  message?: MessageLike;
-}
-interface MessageLike {
-  role?: string;
-  content?: string | Array<{ type?: string; text?: string }>;
-}
 /** modelRegistry.complete 返回的 AssistantMessage 结构子集 */
 interface ResultLike {
   content?: Array<{ type?: string; text?: string }>;
@@ -82,27 +74,11 @@ export interface Samples {
   lastAssistant: string;
 }
 
-/** 提取消息纯文本（跳过 thinking/tool 等非文本块） */
-function entryText(e: EntryLike): string {
-  if (e.type && e.type !== "message") return ""; // 跳过 compaction 等非消息 entry
-  const m = e.message;
-  if (!m) return "";
-  const c = m.content;
-  if (typeof c === "string") return c;
-  if (Array.isArray(c)) {
-    return c
-      .filter((b): b is { type: string; text: string } => b?.type === "text" && typeof b.text === "string")
-      .map((b) => b.text)
-      .join("\n");
-  }
-  return "";
-}
 
 /** 四点采样：首 user/首 assistant 取头部，末 user 取头部，末 assistant 取尾部（结论在尾） */
 export function extractSamples(entries: EntryLike[], sampleChars: number): Samples {
   let firstUser = "", firstAssistant = "", lastUser = "", lastAssistant = "";
   for (const e of entries) {
-    if (e.type && e.type !== "message") continue;
     const t = entryText(e);
     if (!t) continue;
     const role = e.message?.role;

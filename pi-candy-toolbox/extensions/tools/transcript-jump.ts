@@ -34,6 +34,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ToolDefinition } from "../core/config.ts";
 import type { Logger } from "../core/log.ts";
+import { entryText, isUserMessage, type EntryLike } from "../core/entries.ts";
 
 export interface TranscriptJumpConfig {
   /** 调试日志开关：与插件级 $toolbox.debug 为「或」关系，任一为 true 即写 <logDir>/transcript-jump.log */
@@ -48,17 +49,6 @@ export interface TranscriptJumpConfig {
 const PREVIEW_MAX_WIDTH = 400;
 
 // ── 局部最小类型（零额外依赖）──────────────────────────────────────
-interface EntryLike {
-  [key: string]: unknown;
-  type?: string;
-  id?: string;
-  timestamp?: string | number;
-  message?: {
-    role?: string;
-    content?: string | Array<{ type?: string; text?: string; thinking?: string }>;
-  };
-}
-
 /** 渲染组件的最小形状（render 返回行数组） */
 interface ComponentLike {
   render(width: number): string[] | undefined;
@@ -113,27 +103,6 @@ class BorderLine {
 }
 
 // ── 纯函数 ─────────────────────────────────────────────────────────
-
-/** 提取消息纯文本（跳过 thinking/tool 等非文本块） */
-export function entryText(e: EntryLike): string {
-  if (e.type && e.type !== "message") return "";
-  const m = e.message;
-  if (!m) return "";
-  const c = m.content;
-  if (typeof c === "string") return c;
-  if (Array.isArray(c)) {
-    return c
-      .filter((b): b is { type: string; text: string } => b?.type === "text" && typeof b.text === "string")
-      .map((b) => b.text)
-      .join("\n");
-  }
-  return "";
-}
-
-function isUserMessage(e: EntryLike): boolean {
-  if (e.type && e.type !== "message") return false;
-  return e.message?.role === "user";
-}
 
 /** 与 pi 的 parseSkillBlock 同款正则：<skill> 块 + 可选尾随用户消息 */
 const SKILL_BLOCK_RE = /^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/;

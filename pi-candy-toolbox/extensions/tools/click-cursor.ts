@@ -15,6 +15,7 @@
  * 日志：写 <logDir>/click-cursor.log（由工具箱入口按 $toolbox.debug || 本工具 debug 决定，详见 docs/click-cursor.md）。
  */
 import type { ExtensionAPI, CustomEditor } from "@earendil-works/pi-coding-agent";
+import { entryText, isUserMessage, type EntryLike } from "../core/entries.ts";
 import type { ToolDefinition } from "../core/config.ts";
 import type { Logger } from "../core/log.ts";
 
@@ -28,27 +29,6 @@ interface Rect {
   height: number;
 }
 type MouseResult = { consume: true } | undefined;
-
-/** 会话 entry 结构子集（真实结构为 { type: "message", message: { role, content } }） */
-interface EntryLike {
-  type?: string;
-  message?: { role?: string; content?: string | Array<{ type?: string; text?: string }> };
-}
-
-/** 提取消息纯文本（跳过 thinking/tool 等非文本块） */
-function entryText(e: EntryLike): string {
-  const m = e.message;
-  if (!m) return "";
-  const c = m.content;
-  if (typeof c === "string") return c;
-  if (Array.isArray(c)) {
-    return c
-      .filter((b): b is { type: string; text: string } => b?.type === "text" && typeof b.text === "string")
-      .map((b) => b.text)
-      .join("\n");
-  }
-  return "";
-}
 
 /**
  * 惰性确保自己的监听器排在 inputListeners 最前（先于 viewport 收到鼠标事件）。
@@ -75,9 +55,7 @@ export function rebuildHistoryFromSession(
   if (!sessionManager || !editor || !Array.isArray(editor.history)) return;
   const texts: string[] = [];
   for (const e of sessionManager.getEntries()) {
-    if (e?.type && e.type !== "message") continue;
-    const msg = e?.message;
-    if (msg?.role !== "user") continue;
+    if (!isUserMessage(e)) continue;
     const t = entryText(e);
     const trimmed = t.trim();
     if (!trimmed) continue;

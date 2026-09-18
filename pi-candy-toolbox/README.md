@@ -80,7 +80,9 @@ pi -e .                                  # 临时试用，不写入配置
 extensions/
 ├── index.ts              # 入口：加载配置 + 工具清单
 ├── core/
-│   └── config.ts         # 配置读取与归一化（一般不用改）
+│   ├── config.ts         # 配置读取与归一化（一般不用改）
+│   ├── log.ts            # 统一日志出口（写文件，不打印终端）
+│   └── entries.ts        # 会话 entry 公共工具（各工具共享的类型与纯函数，避免重复实现）
 └── tools/
     ├── _template.ts      # 新工具模板（复制它）
     ├── hello.ts          # 示例：简单工具 = 单文件
