@@ -560,7 +560,10 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
               void locateInitialEntry().then((entryId) => {
                 if (!entryId) return;
                 const index = prompts.findIndex((p) => p.entryId === entryId);
-                if (dialog.setInitialIndex(index)) tuiRef?.requestRender?.();
+                if (dialog.setInitialIndex(index)) {
+                  tuiRef?.requestRender?.();
+                  log("自动定位默认选中", index, entryId);
+                }
               });
             }, 0);
           }
