@@ -37,7 +37,7 @@ import { platform, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendFileSync, readFileSync, existsSync } from "node:fs";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, VERSION } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -77,7 +77,19 @@ const CONFIG_PATH = join(getAgentDir(), "candy-win-notify.json");
 
 type TitleStatusMode = "native" | "compat" | "both";
 type TitleStatusConfig = Record<Exclude<TitleStatus, "idle">, TitleStatusMode>;
-type Config = { timeout: number; opacity: number; messageMode: "fixed" | "response"; lang: "zh" | "en" | "ja" | "ko"; muteUntil?: number; titleStatus: TitleStatusConfig };
+type Config = { timeout: number; opacity: number; messageMode: "fixed" | "response"; lang: "zh" | "en" | "ja" | "ko"; muteUntil?: number; titleStatus: TitleStatusConfig; waitingTools: string[] };
+
+/** 旧版 pi（<0.84.4）进入 ⏳ 等待状态所匹配的工具名；pi ≥ 0.84.4 走官方 ui_prompt 事件，此项不生效 */
+const DEFAULT_WAITING_TOOLS = ["ask_user_question", "plan_mode_question"];
+
+/** 纯函数：校验并归一化 waitingTools，非法值回退默认 */
+function normalizeWaitingTools(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    const names = raw.filter((n): n is string => typeof n === "string" && n.trim() !== "").map((n) => n.trim());
+    if (names.length > 0) return names;
+  }
+  return [...DEFAULT_WAITING_TOOLS];
+}
 
 /** 各状态默认显示方式：native=终端原生指示（OSC 9;4），compat=标题 emoji/动画，both=同时启用 */
 const DEFAULT_TITLE_STATUS: TitleStatusConfig = {
@@ -108,10 +120,11 @@ function loadConfig(): Config {
         lang: saved.lang ?? "zh",
         muteUntil: saved.muteUntil,
         titleStatus: normalizeTitleStatus(saved.titleStatus),
+        waitingTools: normalizeWaitingTools(saved.waitingTools),
       };
     }
   } catch { /* */ }
-  return { timeout: 15, opacity: 1.0, messageMode: "response", lang: "zh", titleStatus: { ...DEFAULT_TITLE_STATUS } };
+  return { timeout: 15, opacity: 1.0, messageMode: "response", lang: "zh", titleStatus: { ...DEFAULT_TITLE_STATUS }, waitingTools: [...DEFAULT_WAITING_TOOLS] };
 }
 
 function saveConfig(c: Config): void {
@@ -436,8 +449,20 @@ type TitleStatus = "idle" | "running" | "waiting" | "done" | "failed";
 
 const TITLE_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const TITLE_SPINNER_INTERVAL_MS = 100;
-/** 会阻塞等待用户决定的工具名（进入 ⏳ 状态） */
-const WAITING_TOOL_NAMES = new Set(["ask_user_question"]);
+/** 语义化版本比较：a>b 返回正数，a<b 返回负数，相等返回 0 */
+function compareVersion(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/** pi ≥ 0.84.4：官方 ui_prompt_start/end 事件精确包围"阻塞等待用户输入"区间（覆盖所有 ctx.ui 提问交互） */
+const PI_HAS_UI_PROMPT_EVENTS = compareVersion(VERSION, "0.84.4") >= 0;
+
 /** 可配置显示方式的状态名 */
 const TITLE_STATUS_STATES = ["running", "waiting", "done", "failed"] as const;
 type TitleStatusKey = (typeof TITLE_STATUS_STATES)[number];
@@ -754,13 +779,31 @@ export default function (pi: ExtensionAPI) {
     setTitleStatus("running");
   });
 
-  pi.on("tool_execution_start", (event) => {
-    if (WAITING_TOOL_NAMES.has(event.toolName)) setTitleStatus("waiting");
-  });
-
-  pi.on("tool_execution_end", (event) => {
-    if (WAITING_TOOL_NAMES.has(event.toolName)) setTitleStatus("running");
-  });
+  // ── 等待用户状态判定：新版（≥0.84.4）用官方 ui_prompt 事件，旧版按工具名匹配，二选一 ──
+  if (PI_HAS_UI_PROMPT_EVENTS) {
+    // 官方事件包围所有阻塞式 ctx.ui 提示（custom/select/confirm/input/editor），
+    // 覆盖 ask、plan、permission 等插件；结束恢复进入等待前的状态，
+    // 避免空闲时（如 /plan 菜单）提示关闭后被误置为"执行中"。
+    let statusBeforePrompt: TitleStatus | null = null;
+    pi.on("ui_prompt_start", () => {
+      statusBeforePrompt = titleStatus;
+      setTitleStatus("waiting");
+    });
+    pi.on("ui_prompt_end", () => {
+      const restore = statusBeforePrompt ?? "running";
+      statusBeforePrompt = null;
+      setTitleStatus(restore);
+    });
+    log(`waiting detection: ui_prompt events (pi ${VERSION})`);
+  } else {
+    pi.on("tool_execution_start", (event) => {
+      if (config.waitingTools.includes(event.toolName)) setTitleStatus("waiting");
+    });
+    pi.on("tool_execution_end", (event) => {
+      if (config.waitingTools.includes(event.toolName)) setTitleStatus("running");
+    });
+    log(`waiting detection: tool-name matching (pi ${VERSION}, waitingTools=${config.waitingTools.join(",")})`);
+  }
 
   pi.on("agent_end", (event) => {
     if (verdictFromLastMessage(getLastAssistantMessage(event)) === "failed") {
