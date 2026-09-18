@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { makeCtx, makeLogger, makePiStub, useTempAgentDir } from "./helpers.ts";
 
 useTempAgentDir();
-const { default: clickCursor, ensureFirst, handleMouseData, rebuildHistoryFromSession } = await import(
+const { default: clickCursor, ensureFirst, handleMouseData, isAutocompleteRow, rebuildHistoryFromSession } = await import(
   "../extensions/tools/click-cursor.ts"
 );
 
@@ -149,6 +149,88 @@ test("drag cancels the pending click judgement", () => {
   handleMouseData("\x1b[<0;4;4M", editor, tui, log.log); // 按下
   assert.equal(handleMouseData("\x1b[<32;6;4M", editor, tui, log.log), undefined, "拖拽应放行");
   assert.equal(handleMouseData("\x1b[<0;6;4m", editor, tui, log.log), undefined, "拖拽后的释放应放行");
+});
+
+/* ── autocomplete 列表行：放行给 pi 原生 ─────────────────────── */
+
+/**
+ * 带 autocomplete 的编辑器：内容 4 行。rect y=2..9（顶边框 2、内容 3..6、底边框 7、列表 8..9）。
+ * scrollOffset=2 且视觉行足够多——旧实现对列表行会误定位到第 7 视觉行，用于覆盖该回归。
+ */
+function makeAutocompleteTui() {
+  const editor = makeEditor();
+  editor.renderedVisibleLineCount = 4;
+  editor.renderedAutocompleteHeight = 2;
+  editor.autocompleteState = "regular";
+  editor.scrollOffset = 2;
+  editor.buildVisualLineMap = () =>
+    Array.from({ length: 10 }, (_, index) => ({ logicalLine: index, startCol: 0, length: 20 }));
+  const container = { children: [editor] };
+  const tui: any = { mode: "fullscreen", children: [container], requestRender: () => {} };
+  tui.currentLayout = {
+    height: 20,
+    root: {
+      rect: { x: 0, y: 0, width: 40, height: 20 },
+      children: [{ component: container, rect: { x: 0, y: 2, width: 40, height: 8 } }],
+    },
+  };
+  return { tui, editor };
+}
+
+test("isAutocompleteRow matches the native autocompleteStartRow boundary", () => {
+  const rect = { x: 0, y: 2, width: 40, height: 8 };
+  const editor: any = { autocompleteState: "regular", renderedVisibleLineCount: 4 };
+
+  assert.equal(isAutocompleteRow(editor, rect, 2), false, "顶边框");
+  assert.equal(isAutocompleteRow(editor, rect, 6), false, "最后一个内容行");
+  assert.equal(isAutocompleteRow(editor, rect, 7), false, "底边框");
+  assert.equal(isAutocompleteRow(editor, rect, 8), true, "列表第一行");
+  assert.equal(isAutocompleteRow(editor, rect, 9), true, "列表最后一行");
+
+  assert.equal(isAutocompleteRow({ ...editor, autocompleteState: null }, rect, 8), false, "列表未打开");
+  assert.equal(isAutocompleteRow({ autocompleteState: "regular" }, rect, 8), false, "缺少行数字段时降级");
+});
+
+test("click on an autocomplete row is left to pi and does not move the cursor", () => {
+  const { tui, editor } = makeAutocompleteTui();
+  const log = makeLogger();
+  editor.state.lines = ["line0", "line1", "line2", "line3"];
+
+  assert.equal(handleMouseData("\x1b[<0;4;9M", editor, tui, log.log), undefined, "按下应放行");
+  assert.equal(handleMouseData("\x1b[<0;4;9m", editor, tui, log.log), undefined, "列表行释放应放行给原生");
+
+  assert.equal(editor.state.cursorLine, 0, "光标不应被移动");
+  assert.equal(editor.state.cursorCol, 0, "列不应被改动");
+  assert.match(String(log.calls.map((a) => a[0]).join("\n")), /点击在 autocomplete 列表/);
+});
+
+test("click on a content row still positions the cursor while autocomplete is open", () => {
+  const { tui, editor } = makeAutocompleteTui();
+  const log = makeLogger();
+  editor.state.lines = ["line0", "line1", "line2", "line3"];
+
+  handleMouseData("\x1b[<0;4;4M", editor, tui, log.log); // 屏幕 y=3 = 第一个内容行（局部行 1）
+  assert.equal(handleMouseData("\x1b[<0;4;4m", editor, tui, log.log)?.consume, true, "内容行仍由本工具消费");
+  assert.equal(editor.state.cursorLine, 2, "visualRow = 3-3+scrollOffset(2) = 2");
+});
+
+test("click on the bottom border does not move the cursor", () => {
+  const { tui, editor } = makeAutocompleteTui();
+  const log = makeLogger();
+  editor.state.lines = ["line0", "line1", "line2", "line3"];
+
+  handleMouseData("\x1b[<0;4;8M", editor, tui, log.log); // 底边框（y=7, 1-based 8）
+  assert.equal(handleMouseData("\x1b[<0;4;8m", editor, tui, log.log)?.consume, true);
+  assert.equal(editor.state.cursorLine, 0, "底边框行不应移动光标");
+});
+
+test("autocomplete rows keep the legacy behaviour when the editor lacks pi's fields", () => {
+  const { tui, editor } = makeTui();
+  const log = makeLogger();
+  editor.autocompleteState = "regular"; // 有状态字段但无 renderedVisibleLineCount → 无法判定 → 旧行为
+
+  handleMouseData("\x1b[<0;4;4M", editor, tui, log.log);
+  assert.equal(handleMouseData("\x1b[<0;4;4m", editor, tui, log.log)?.consume, true);
 });
 
 /* ── 安装与模式守卫 ─────────────────────────────────────────────── */

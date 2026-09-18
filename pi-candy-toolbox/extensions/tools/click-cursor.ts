@@ -8,10 +8,12 @@
  *      不碰 footer/编辑器/其他扩展的 widget）
  *   2. ctx.ui.onTerminalInput 监听器前置到 viewport 之前（安装时立即 + 每秒轮询兜底）
  *   3. tui.children 定位编辑器实例 + tui.currentLayout 布局树读取屏幕矩形
+ *   4. autocomplete 列表行的点击放行给 pi 原生（Editor.handleMouse 的 autocomplete 分支），
+ *      本工具只处理内容行——列表行坐标对齐原生 autocompleteStartRow = renderedVisibleLineCount + 2
  *
- * 无回归保证：仅对「落在编辑器矩形内的左键按下」返回 consume，其余事件
- * （滚轮、选区拖拽、链接、右键粘贴、编辑器外点击）原样交给 viewport。
- * 已知限制：编辑器区域内的拖拽选区不再工作（按下被拦截为光标定位）。
+ * 无回归保证：仅对「落在编辑器矩形内的左键释放（点击）」返回 consume，其余事件
+ * （滚轮、选区拖拽、链接、右键粘贴、编辑器外点击、autocomplete 列表行点击）原样交给 viewport。
+ * 已知限制：autocomplete 列表行点击依赖 pi 原生（0.85.0+；字段缺失时降级）——降级时该次点击被忽略。
  * 日志：写 <logDir>/click-cursor.log（由工具箱入口按 $toolbox.debug || 本工具 debug 决定，详见 docs/click-cursor.md）。
  */
 import type { ExtensionAPI, CustomEditor } from "@earendil-works/pi-coding-agent";
@@ -144,6 +146,19 @@ function charWidthCp(cp: number): number {
   return 1;
 }
 
+/**
+ * 点击是否落在 autocomplete 列表行上（交给 pi 原生选条目）。
+ * pi 的渲染行序（Editor.render）：顶边框(局部行 0) → 内容行 1..renderedVisibleLineCount
+ * → 底边框(N+1) → 列表(N+2..)，与 Editor.handleMouse 的 autocompleteStartRow 同一定义。
+ * 字段缺失（非 pi 的 Editor 实现）时返回 false，退化为旧行为（列表行点击被忽略）。
+ */
+export function isAutocompleteRow(editor: unknown, rect: Rect, y: number): boolean {
+  const e = editor as { autocompleteState?: unknown; renderedVisibleLineCount?: number };
+  if (e?.autocompleteState === null || e?.autocompleteState === undefined) return false;
+  if (typeof e.renderedVisibleLineCount !== "number") return false;
+  return y - rect.y >= e.renderedVisibleLineCount + 2;
+}
+
 /** 屏幕坐标 → 文本位置并移动光标 */
 export function moveCursorToScreen(
   editor: CustomEditor,
@@ -156,18 +171,22 @@ export function moveCursorToScreen(
     scrollOffset: number;
     lastWidth: number;
     paddingX: number;
+    renderedVisibleLineCount?: number;
     buildVisualLineMap(width: number): Array<{ logicalLine: number; startCol: number; length: number }>;
     setCursorCol(col: number): void;
     state: { cursorLine: number; lines?: string[] };
     tui: { requestRender(): void };
   };
-  const textTop = rect.y + 1; // 顶边框之下
-  const textBottom = rect.y + rect.height - 1; // 底边框之上
+  const textTop = rect.y + 1; // 顶边框之下（第 1 个内容行）
+  // 内容行数取渲染记录值：autocomplete 打开时 rect.height 含列表行，不能用它推底边框
+  // 回退（字段缺失）：rect.height - 2（顶/底边框各 1 行）
+  const visibleRows = typeof e.renderedVisibleLineCount === "number" ? e.renderedVisibleLineCount : rect.height - 2;
+  const textBottom = textTop + visibleRows; // 底边框行（不含）
   const visualRow = y - textTop + e.scrollOffset;
   if (y < textTop || y >= textBottom || visualRow < 0) return;
   const visualLines = e.buildVisualLineMap(e.lastWidth);
   const vl = visualLines[visualRow];
-  if (!vl) return; // 越界（含 autocomplete 行，自动忽略）
+  if (!vl) return; // 越界（内容行数超出实际视觉行）
 
   // 段起点显示宽度（近似：wrap 段除末段外均整宽 layoutWidth）
   let segIndex = 0;
@@ -288,6 +307,12 @@ export function handleMouseData(data: string, editor: CustomEditor | undefined, 
       if (!rect) {
         log?.("未找到编辑器 rect（currentLayout 不可用？）");
         return { consume: true };
+      }
+      // autocomplete 列表行：放行给 pi 原生（原生 dispatch 后由 Editor.handleMouse 选中条目，
+      // 本工具无此能力）。不消费释放、不清选区——原生靠选区锚点判定点击，清掉会破坏它
+      if (isAutocompleteRow(editor, rect, y)) {
+        log?.(`点击在 autocomplete 列表（放行，交给 pi 原生选中条目）x=${x} y=${y} rect=${JSON.stringify(rect)}`);
+        return undefined;
       }
       // 非零宽选区 = 双击/三击选词产物（viewport 在 press 时已建立词/行选区）
       // → 不干预：保留选区高亮与自动复制，光标不移动
