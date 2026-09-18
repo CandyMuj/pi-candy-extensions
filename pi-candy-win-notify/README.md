@@ -62,7 +62,7 @@ pi 在终端标签页展示四种任务状态，多窗口并行时无需逐个�
 | 状态 | 触发时机 | 原生显示（native） | 兼容显示（compat） |
 |---|---|---|---|
 | 执行中 | `agent_start` | 标签页原生转圈动画 | 标题盲文动画 `⠋⠙⠹…` |
-| 等待用户 | 提问工具（如 `ask_user_question`）执行时 | 暂停指示（OSC 9;4 st=4） | 标题 `⏳` |
+| 等待用户 | 阻塞式 UI 提问：pi ≥ 0.84.4 官方 `ui_prompt` 事件；旧版按 `waitingTools` 工具名 | 暂停指示（OSC 9;4 st=4） | 标题 `⏳` |
 | 完成 | 任务结束且无错误 | 进度 100% 绿勾（st=1;100） | 标题 `✅` |
 | 失败 | 任务被中断或不可重试错误 | 错误红叉（st=2） | 标题 `❌` |
 
@@ -91,6 +91,7 @@ pi 在终端标签页展示四种任务状态，多窗口并行时无需逐个�
   "messageMode": "response",
   "lang": "zh",
   "muteUntil": null,
+  "waitingTools": ["ask_user_question", "plan_mode_question"],
   "titleStatus": {
     "running": "native",
     "waiting": "both",
@@ -105,7 +106,10 @@ pi 在终端标签页展示四种任务状态，多窗口并行时无需逐个�
 - `messageMode`：弹窗内容模式，`response`=AI 回复前 50 字，`fixed`=固定完成文本
 - `lang`：界面语言（`zh` / `en` / `ja` / `ko`）
 - `muteUntil`：勿扰截止时间戳（毫秒），`null` 表示未开启勿扰；由弹窗勿扰按钮写入
+- `waitingTools`：等待用户状态所匹配的工具名列表（**仅 pi < 0.84.4 生效**；pi ≥ 0.84.4 走官方 `ui_prompt` 事件自动识别，此配置无效）
 - `titleStatus`：各状态在终端标签页的显示模式（`native` / `compat` / `both`）
+
+> ⚠️ **推荐 pi `>= 0.84.4`**：`0.84.4` 起官方新增 `ui_prompt_start` / `ui_prompt_end` 扩展事件，能精确识别所有"阻塞等待用户输入"的交互（ask、plan、permission 等所有 `ctx.ui` 提问），等待状态不再依赖工具名猜测。`waitingTools` 仅是旧版的降级方案，对新插件/改名工具可能漏判；低于此版本请升级，等待状态识别会更稳定。
 
 配置可通过 `/notify` 命令修改并立即生效；直接编辑文件需重启 pi。非法配置值会自动回退默认。
 
