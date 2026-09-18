@@ -1,6 +1,6 @@
 {
   "name": "pi-candy-themes",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Selenized themes for Pi, based on Jan Warchoł's Selenized color palette.",
   "type": "module",
   "license": "MIT",

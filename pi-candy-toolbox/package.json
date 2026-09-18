@@ -1,6 +1,6 @@
 {
   "name": "pi-candy-toolbox",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "pi 的小工具聚合箱 — 收纳零散小功能，每个工具独立开关、独立配置",
   "keywords": [
