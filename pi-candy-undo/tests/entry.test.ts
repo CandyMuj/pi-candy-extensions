@@ -40,9 +40,22 @@ function createStub(cwd: string): { pi: unknown; state: StubState; ctx: unknown 
   };
   const ui = {
     notify: (message: string, type: "info" | "warning" | "error") => state.notices.push({ message, type }),
-    select: async (_title: string, options: string[]) => {
+    // 自定义选择器：构造组件后用排队的选择谓词决议，等价于用户选中并按 Enter（Esc/取消 = null）。
+    custom: async (factory: (...args: unknown[]) => { options?: readonly string[] }) => {
+      let resolve!: (value: unknown) => void;
+      const promise = new Promise<unknown>((r) => {
+        resolve = r;
+      });
+      const component = factory(
+        {},
+        { fg: (_name: string, text: string) => text, bold: (text: string) => text },
+        {},
+        (value: unknown) => resolve(value),
+      );
       const answer = state.selectQueue.shift();
-      return answer ? answer(options) : undefined;
+      const picked = answer && component.options ? answer([...component.options]) : undefined;
+      resolve(picked ?? null);
+      return promise;
     },
     input: async () => undefined,
   };

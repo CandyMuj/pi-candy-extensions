@@ -11,6 +11,7 @@ import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionCommandC
 import path from "node:path";
 import { runRedo, runUndo } from "../src/commands.ts";
 import { loadConfig } from "../src/config.ts";
+import { pickFromList } from "./picker.ts";
 import { UndoSession, type CommandApi, type SessionApi } from "../src/session.ts";
 import type { BranchEntry } from "../src/types.ts";
 
@@ -36,10 +37,10 @@ function createEventApi(ctx: ExtensionContext): SessionApi {
   };
 }
 
-function createCommandApi(ctx: ExtensionCommandContext, base: SessionApi): CommandApi {
+function createCommandApi(ctx: ExtensionCommandContext, session: UndoSession): CommandApi {
   return {
-    ...base,
-    select: (title, options) => ctx.ui.select(title, options),
+    ...session.api,
+    select: (title, options) => pickFromList(ctx.ui, title, options, session.t("picker.hint")),
     input: (title, placeholder) => ctx.ui.input(title, placeholder),
     navigateTree: (targetId, options) => ctx.navigateTree(targetId, options),
     waitForIdle: () => ctx.waitForIdle(),
@@ -118,7 +119,7 @@ export default function piCandyUndo(pi: ExtensionAPI) {
         ctx.ui.notify("pi-candy-undo 尚未初始化，请先发送一条消息", "warning");
         return;
       }
-      await runUndo(session, createCommandApi(ctx, session.api));
+      await runUndo(session, createCommandApi(ctx, session));
     },
   });
 
@@ -130,7 +131,7 @@ export default function piCandyUndo(pi: ExtensionAPI) {
         ctx.ui.notify("pi-candy-undo 尚未初始化，请先发送一条消息", "warning");
         return;
       }
-      await runRedo(session, createCommandApi(ctx, session.api));
+      await runRedo(session, createCommandApi(ctx, session));
     },
   });
 }

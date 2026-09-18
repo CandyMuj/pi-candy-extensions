@@ -29,7 +29,7 @@
 |---|---|
 | `/checkpoint`（手动打点） | 本插件没有脏检查：手动修改从不进入跟踪集合，不存在"被回退覆盖"的风险，无需手动打点去保护；而"回到某一时刻"已由每个操作自动建快照覆盖（回退到任一消息即可） |
 | Esc-Esc 快捷键 | 双击 Esc 已被 pi 内置 `doubleEscapeAction`（默认 `tree`）占用；扩展的 `registerShortcut` 只接受单键组合，无法接管这类应用级手势 |
-| 自定义 TUI 选择器（`ctx.ui.custom`） | 两段式 `ctx.ui.select` 在 TUI 与 RPC 均可用；`ctx.ui.custom()` 在 RPC 模式返回 `undefined`，属 TUI 专属，需额外维护组件代码与模式回退分支，收益有限 |
+| 自定义 TUI 选择器（`ctx.ui.custom`） | 原评估：收益有限，不采用 → **已反转**：原生 `ctx.ui.select` 全量渲染且无滚动，选项超过一屏时部分选项无法显示/选择，故改用自定义选择器（`extensions/picker.ts`，交互同 toolbox 的 transcript-jump） |
 | 内置 `/tree` 集成（导航时顺带恢复文件） | 需 hook `session_before_tree`，会改变 pi 内置 `/tree` 的行为（每次树导航都可能弹窗），易与其他扩展冲突，并破坏"只有 `/undo` 会动文件"的显式性；`/undo` 已完整覆盖该需求 |
 | 暴露给模型的自调用 undo（注册工具） | 让模型自主回退文件容易与用户意图冲突；CC 同样不把 rewind 暴露给模型，undo 保持为用户专属操作 |
 
@@ -223,7 +223,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 2. 门控检查（enabled、ctx.hasUI、storage 可用）→ 不满足则 notify 后返回
 3. 构建消息列表：branch 上 role==="user" 的条目（倒序，最新在前），
    每条带 diff 摘要（对该消息快照做 dry-run 恢复统计：文件数/+行/-行；快照缺失 → 最近更早快照）
-4. ctx.ui.select("Rewind to before…", 选项)  → 取消则无事发生
+4. cmd.select("Rewind to before…", 选项)（自定义选择器 `extensions/picker.ts`：↑↓ 选择 + 输入过滤 + ←/→ 翻页，替换原生 `ctx.ui.select`）→ 取消则无事发生
 5. 计算目标快照 S_M；dry-run 得出改动统计
 6. 菜单（与 CC 一致；文案走 i18n，`language` 配置见 §7，上列为 en 文案）：
      有文件改动：  1. Restore code and conversation  2. Restore conversation
@@ -369,7 +369,7 @@ CC 做法（已从源码核实）：启动时 `setImmediate` 扫描 `~/.claude/f
 | 绑定用户消息 | `pi.on("turn_end")` / `pi.on("agent_settled")` + `ctx.sessionManager.getBranch()/getLeafId()/getEntry()` |
 | 会话生命周期 | `pi.on("session_start")`（`event.reason`、`event.previousSessionFile`）、`pi.on("session_shutdown")` |
 | 命令 | `pi.registerCommand("undo"|"redo", { handler })`；`ctx.waitForIdle()` |
-| 选择器 UI | `ctx.ui.select(title, string[])`（两段式：消息列表 → 操作菜单）、`ctx.ui.input`、`ctx.ui.notify` |
+| 选择器 UI | `ctx.ui.custom` + 自定义选择器（`extensions/picker.ts`，↑↓ 选择/输入过滤/←→ 翻页；两段式：消息列表 → 操作菜单）、`ctx.ui.input`、`ctx.ui.notify` |
 | 对话回退 | `ctx.navigateTree(userEntryId, {summarize, customInstructions})`（编程调用不弹二次确认，已核实源码） |
 | 会话 id / 文件 | `ctx.sessionManager.getSessionId()`、`getSessionFile()`、`getEntries()` |
 | 设置读取 | 直接读 `~/.pi/agent/settings.json`（`getAgentDir()/settings.json`）+ `.pi/settings.json`（`<cwd>/<CONFIG_DIR_NAME>/settings.json`）（扩展无 settingsManager；用官方导出避免硬编码路径；项目设置受 `ctx.isProjectTrusted()` 门控） |

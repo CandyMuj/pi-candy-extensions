@@ -7,8 +7,12 @@ import type { Language } from "./types.ts";
 
 export const MESSAGES = {
   "picker.title": {
-    zh: "回退到该消息之前",
-    en: "Rewind to before",
+    zh: "回退到该消息之前（{count} 条）",
+    en: "Rewind to before ({count} item(s))",
+  },
+  "picker.hint": {
+    zh: "↑↓ 选择 · ←/→ 翻页 · Enter 确认 · Esc 取消 · 直接输入过滤",
+    en: "↑↓ select · ←/→ page · Enter confirm · Esc cancel · type to filter",
   },
   "picker.noChanges": {
     zh: "无文件改动",

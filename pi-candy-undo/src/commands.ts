@@ -230,7 +230,7 @@ export async function runUndo(session: UndoSession, cmd: CommandApi): Promise<vo
     optionToMessage.set(label, item.message);
   }
 
-  const picked = await cmd.select(session.t("picker.title"), options);
+  const picked = await cmd.select(session.t("picker.title", { count: options.length }), options);
   if (picked === undefined) {
     return;
   }
