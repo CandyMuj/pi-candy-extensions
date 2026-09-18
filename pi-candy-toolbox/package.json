@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@earendil-works/pi-tui": "^0.84.3",
+    "@earendil-works/pi-tui": "^0.85.1",
     "typescript": "^5.9.2"
   }
 }
