@@ -29,5 +29,8 @@
     "themes": [
       "./themes"
     ]
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
   }
 }

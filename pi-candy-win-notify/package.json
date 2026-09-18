@@ -37,5 +37,8 @@
   "optionalDependencies": {
     "@koromix/koffi-win32-x64": "3.0.2",
     "@koromix/koffi-win32-ia32": "3.0.2"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
   }
 }
