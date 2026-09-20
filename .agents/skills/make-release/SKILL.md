@@ -54,13 +54,14 @@ node .agents/skills/make-release/scripts/release-notes.mjs --markdown --tag <tag
 
 ### 5. 维护 CHANGELOG.md（先做，仅改工作区，不提交）
 
-- **CHANGELOG 的正文必须与 release body 完全一致**：两者都取自同一份 `/tmp/pi-temp/release-notes.md` 正文（首行 `# <tag>` 之外的全文），不得改写、增删或重排
+- **CHANGELOG 的正文与 release body 完全一致，唯一差异是标题层级**：两者都取自同一份 `/tmp/pi-temp/release-notes.md` 正文（首行 `# <tag>` 之外的全文），文字一字不改、不增删、不重排；但 CHANGELOG 多了 `# Changelog` → `## <tag>` 两层，所以**标题层级整体降一级**：notes 的 `##` → CHANGELOG 的 `###`，`###` → `####`，`####` → `#####`（保证 `# Changelog` > `## <tag>` > `### 版本总表` > `#### 插件名` > `##### 工具名`）
 - 插入规则：在根 `CHANGELOG.md` 顶部（文件不存在则创建，首行 `# Changelog`）插入：
 
 ```markdown
 ## <tag>（YYYY-MM-DD）
 
-<notes 正文（版本总表 + 各插件/工具无序列表 + 公共节，与 release body 一字不差）>
+### 版本总表
+…（与 notes 正文一致，仅标题层级降一级）
 ```
 
 - 完成后 `git diff CHANGELOG.md` 自查：与 notes 正文逐字一致（仅多出 `## <tag>（YYYY-MM-DD）` 小节标题）

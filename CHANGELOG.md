@@ -4,7 +4,7 @@
 
 > 首个 release：自仓库创建（2026-08-27）以来的全部变更，对应 4 个包在 npm 官方源的首次发布。
 
-## 版本总表
+### 版本总表
 
 | 插件 | 本次版本 | 相对上次 | 状态 |
 |---|---|---|---|
@@ -13,9 +13,9 @@
 | [pi-candy-toolbox](https://www.npmjs.com/package/pi-candy-toolbox/v/1.0.0) | 1.0.0 | — | 有变更 |
 | [pi-candy-undo](https://www.npmjs.com/package/pi-candy-undo/v/1.0.0) | 1.0.0 | — | 有变更 |
 
-## 各插件变更
+### 各插件变更
 
-### pi-candy-themes 1.0.0
+#### pi-candy-themes 1.0.0
 
 - 新增 Selenized TUI 主题插件：基于 Jan Warchoł 的 Selenized 调色板提供 black / dark / light / white 四套 TUI 主题，主题文件由 `scripts/generate-themes.mjs` 从调色板数据生成，可直接 `pi install npm:pi-candy-themes` 使用 (#c201957)
 - 文档说明图标需要 Nerd Fonts：主题中使用的图标字形依赖 Nerd Fonts，README 补充说明并给出字体下载地址，避免用户看到乱码 (#3be22df)
@@ -24,7 +24,7 @@
 - 补齐发布元数据与 LICENSE：补 author、repository.directory（monorepo 子目录指向）、peerDependenciesMeta.optional（pi 核心包由宿主提供，npm 不再为纯 npm 用户/开发机自动安装 400MB+ 副本），并随包发布 MIT 许可证正文 (#199e3b0)
 - 统一各 README 安装说明：本地安装命令改为 `npm install --omit=dev`（只装运行时依赖，themes/toolbox 无依赖则无需安装），并警告不要加 `--omit=optional`（会跳过 koffi 的 Windows 平台二进制导致安装失败） (#75b28ab)
 
-### pi-candy-win-notify 2.0.0
+#### pi-candy-win-notify 2.0.0
 
 - 迁移原 pi-win-notify 仓库源码：以原仓库 main 分支 5889e19 提交为基线迁入本 monorepo，作为 pi-candy-win-notify 的起点 (#e43fcd9)
 - 新增终端标签页四态状态显示：标题随任务状态（等待/运行/成功/失败）实时变化，配合 OSC 9;4 进度语义，让终端标签页一眼可见任务状态 (#8cc51b4)
@@ -44,20 +44,20 @@
 - 子目录 .gitignore 合并到根目录：忽略规则统一到根维护，并解除对 win-notify package-lock.json 的忽略，使其进入版本控制保证依赖可复现 (#1ddaa99)
 - 本地安装命令改为只装运行时依赖：`npm install --omit=dev`；README 明确 koffi 的 Windows 原生二进制在 optionalDependencies 中，**不可加 `--omit=optional`**（否则 koffi 回退源码编译、缺 CMake 导致安装失败） (#0481819)
 
-### pi-candy-toolbox 1.0.0
+#### pi-candy-toolbox 1.0.0
 
-#### 插件级
+##### 插件级
 
 - 搭建工具聚合插件脚手架：确立「单插件多工具」架构——按 TOOLS 清单注册，每个工具独立开关与配置，hello 作为示例工具随脚手架落地 (#3faec52)
 - 日志统一写文件并新增 $toolbox 插件级配置：工具日志不再打印终端（避免遮挡 UI），统一写 `<logDir>/<工具id>.log`；`$toolbox.debug` / `$toolbox.logDir` 提供插件级开关，与各工具 debug 为「或」关系 (#dbf5162)
 - 提取会话 entry 公共工具到 core/entries：click-cursor 的历史重建等共用逻辑（isUserMessage / entryText）收敛到 core/entries，便于复用与测试 (#11242c1)
 - 验证基线升级至 pi 0.85.1：全部插件在该版本下回归测试（toolbox 92 用例、undo 86、win-notify 57，typecheck 通过），README 开发验证版本同步更新 (#7fce2c3)
 
-#### hello
+##### hello
 
 - 示例工具默认关闭并修正文档措辞：hello 只作新工具脚手架参考，默认不启用，文档措辞不再暗示它是正式功能 (#77823ff)
 
-#### session-title
+##### session-title
 
 - 新增会话标题生成工具：agent 会话结束后按会话内容自动生成/重新生成标题，避免标题为空的会话堆积，可通过 `/candy-title [提示词]` 手动触发 (#f6ca322)
 - 命令增加生成中反馈：`/candy-title` 生成期间显示进度反馈，不再静默等待 (#80637be)
@@ -69,7 +69,7 @@
 - 配置写入失败提示带上异常原因：写入失败时展示具体异常，便于排查权限/磁盘等问题 (#3ff724f)
 - 空会话不再调模型编造标题：无内容会话跳过标题生成，节省 token 且不产生无意义标题 (#28d865b)
 
-#### click-cursor
+##### click-cursor
 
 - 新增全屏点击定位光标工具：fullscreen 模式下点击输入框任意位置即移动光标，按显示宽度精确映射（中文/emoji 等宽字符点到字符间隙），类似 Claude Code 的点击编辑体验 (#edf2c40)
 - 修复点击定位精度：列定位按显示宽度逐字符修正，消除多字节字符导致的偏移 (#9db7d46)
@@ -84,7 +84,7 @@
 - autocomplete 条目点击改由 pi 原生处理：列表行点击放行给原生 Editor.handleMouse（pi ≥ 0.85 原生支持）选中条目；本工具只处理内容行，内容行边界改用 renderedVisibleLineCount（顺带修掉列表打开+文本滚动时点列表行误移光标的隐患） (#8b644b1)
 - 文档说明计划退役与按功能选 pi 版本：pi 0.85 起官方原生实现点击定位（含 autocomplete 点击/拖拽选区/双击三击），本工具仅保留 debug 日志与会话历史重建价值，官方稳定后退役；根 README 增「按功能选 pi 版本」表 (#84f0f25)
 
-#### transcript-jump
+##### transcript-jump
 
 - 新增提问跳转工具：`/candy-jump`（快捷键 `alt+j`，仅全屏）打开当前会话提问列表，选中即滚动到对应组件行 (#6a8e630)
 - 默认快捷键改为 alt+j：避免与其它插件/终端快捷键冲突 (#1706cd6)
@@ -96,7 +96,7 @@
 - 自动定位改为选择器打开后异步执行：避免定位计算阻塞选择器渲染 (#2607172)
 - 自动定位成功时记录调试日志：便于排查定位失败场景 (#2b44ce0)
 
-### pi-candy-undo 1.0.0
+#### pi-candy-undo 1.0.0
 
 - 新增设计与调研文档：pi-candy-undo 设计文档与 Claude Code `/rewind` 调研纪要，明确功能边界与实现取舍 (#01b3542)
 - 补充 undo 粒度说明：明确回退到「目标时刻」的完整状态而非单回合，澄清用户预期 (#c34f3c6)
@@ -120,7 +120,7 @@
 - 文档强化文件修改工具的强制使用说明：强调 pi 中文件修改必须走 edit/write 等内置工具才会被跟踪（外部编辑器/直接改文件不会） (#bc8b1fb)
 - 选择器支持搜索与翻页，替换原生 select：长会话下通过搜索/翻页快速定位回退点，替代原生下拉选择 (#1cc635c)
 
-## 仓库公共
+### 仓库公共
 
 - 添加 .gitignore 和 .gitattributes：统一换行（LF）与忽略规则（node_modules、IDE 文件、日志等），跨平台行为一致 (#b5e95b9)
 - 新增仓库根 README：插件列表（4 个插件 + 各自文档链接）、按功能选 pi 版本（0.85.1 / 0.84.4）、fullscreen 验证环境说明、npm 与本地两种安装方式 (#c5c108a)
