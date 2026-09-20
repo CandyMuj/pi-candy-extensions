@@ -14,7 +14,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CandyMuj/pi-candy-extensions.git"
+    "url": "git+https://github.com/CandyMuj/pi-candy-extensions.git",
+    "directory": "pi-candy-win-notify"
   },
   "pi": {
     "extensions": [
@@ -30,6 +31,14 @@
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
   },
   "dependencies": {
     "koffi": "^3.0.2"

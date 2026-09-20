@@ -4,6 +4,12 @@
   "description": "Selenized themes for Pi, based on Jan Warchoł's Selenized color palette.",
   "type": "module",
   "license": "MIT",
+  "author": "CandyMuj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CandyMuj/pi-candy-extensions.git",
+    "directory": "pi-candy-themes"
+  },
   "keywords": [
     "pi-package",
     "pi",
@@ -24,6 +30,14 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
   },
   "pi": {
     "themes": [
