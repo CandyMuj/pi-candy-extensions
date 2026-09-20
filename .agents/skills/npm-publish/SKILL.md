@@ -33,7 +33,9 @@ description: 把本仓库（pi-candy-extensions）的插件包发布到 npm 官�
    - 版本级别（patch / minor / major）未指定
    - preflight 报出待修正项（元数据 / 文件列表）而用户未必要求先修
    - 是否真正执行发布、发布前是否要先提交 / `git push`
+   - 发布需要 2FA 认证（`EOTP`）
    脚本不提供任何跳过登录或跳过检查的开关（无环境变量、无 `--force`），遇到这些情况就停下来问。
+   **2FA 的固定做法**：把认证链接（`error.authUrl`）原样交给用户，请其在已登录 npm 的浏览器里完成认证（安全密钥 / 验证器），等其确认后再继续发布；不得自行尝试认证、不得索取或打印 token。
 5. 不做破坏性操作：不加 `--force`、不改 git config、不擅自 `git push`。
 6. 一个包失败不影响其余包：继续处理剩下的，最后统一汇报「成功 / 失败 + 原因」。
 
@@ -84,6 +86,8 @@ npm publish --dry-run             # 模拟发布：不上传、不产生任何�
 - dry-run 显示的版本号 == 计划发布的版本号
 - 线上已存在同版本 → 必须先升版本号，否则发布报 403
 
+> ⚠ `npm publish --dry-run` **不会**触发 2FA 检查（永远通过），所以是否要 2FA 只有在§5 的真实发布尝试里才能知道。
+
 以上元数据/文件列表检查已由 preflight 脚本自动完成（见文末），人工只需确认输出里的 `⚠` 项。
 
 ## 4. 版本号
@@ -109,15 +113,61 @@ git commit -m "🔧 chore: pi-candy-toolbox 1.0.1"
 
 ## 5. 发布（仅在用户明确要求时）
 
-逐包在各自目录执行，无额外参数：
+### 5.1 用真实发布探测是否需要 2FA（第一个包）
+
+`--dry-run` 不检查 2FA，所以第一个包直接用 `--json` 发起真实发布（成功则已发布，失败则只是 401，不会产生半成品；`--json` 会在错误体里给出**未脱敏**的认证链接）：
 
 ```bash
-cd pi-candy-toolbox && npm publish
-cd ../pi-candy-undo && npm publish
+cd pi-candy-toolbox && npm publish --json
 ```
+
+判断只看两点（**不要**用「有没有 authUrl 字段」当成败判据：成功输出里本来就没有 `error` 键）：
+
+| 输出 | 含义 | 下一步 |
+|---|---|---|
+| 退出码 0、无 `error` 键 | 发布成功 | 直接进 5.3（趁 2FA 窗口连发其余包） |
+| `error.code === "EOTP"` 且有 `error.authUrl` / `error.doneUrl` | 账号 2FA 为**安全密钥（WebAuthn）**，没有 6 位码 | 走 5.2 |
+| `error.code === "EOTP"` 且无上述字段 | 账号 2FA 为**验证器 App（TOTP）** | 向用户要 6 位验证码，然后 `npm_config_otp=<码> npm publish` |
+
+> 环境注意（本机中文 Windows）：从管道读 registry 响应必须显式按 UTF-8 解码，否则会因 GBK 报假 JSON 解析错：
+> `python -c "import json,sys; print(json.loads(sys.stdin.buffer.read().decode('utf-8')))"`
+
+### 5.2 浏览器认证流（安全密钥账号，无 6 位码可用）
+
+1. 把 `error.authUrl` **原样发给用户**，请其「在已登录 npm 的浏览器里打开并用安全密钥认证」，然后**等用户确认**（不要在非交互环境里自己试：npm 仅在 TTY 下自动处理 webauth，非 TTY 会直接抛 EOTP）
+2. 用户确认后，**只请求一次** `doneUrl`：其 200 响应体就是 token（`{"token":"..."}`）；再请求会因 authId 已被消费而拿不到内容
+
+```bash
+curl -s -o /tmp/pi-temp/done.json -w "%{http_code}\n" "<doneUrl>"   # 202 = 还没认证完；200 = 完成
+```
+
+3. 取出 token 当 OTP 发布（**不打印 token、不写入对话/日志**）：
+
+```bash
+TOKEN=$(cat /tmp/pi-temp/done.json | python -c "import json,sys;print(json.load(sys.stdin)['token'])")
+cd <包目录> && npm_config_otp="$TOKEN" npm publish
+```
+
+- 该 token 是**一次性**的，不要指望复用到别的包；链接失效/报错时重跑 `npm publish --json` 生成新挑战，再把新 `authUrl` 交给用户
+- 认证完成后**不要再手动加 `--otp`**：实测把一个已消费的 token 带到下一个包反而会被判 EOTP
+
+### 5.3 趁 2FA 窗口连发剩余包
+
+实测：一次认证成功后短时间内 registry 认为「2FA 已满足」，此期间其余包的 `npm publish`（**不带任何 OTP**）会直接成功（本次 4 个包在 22 秒内连续发完）。所以认证通过后要**立即连续发布剩余包**，不要中途停顿：
+
+```bash
+cd ../pi-candy-undo && npm publish
+cd ../pi-candy-win-notify && npm publish
+```
+
+- 若某包仍报 EOTP → 该包重新生成挑战（`npm publish --json`）→ 回到 5.2
+- 每发完一个包，立即用§6 的命令验证，不要等全部发完再验
+
+### 5.4 参数约定
 
 - 非 scoped 包：**不要**加 `--access public`；不加 `--tag`（除非用户要求发 beta 等 dist-tag）
 - 首次发布新包名同样只需 `npm publish`
+- ⚠ **包的首次发布不能用 trusted publishing（OIDC）**（npm/cli #8544：无法用 OIDC 发初始版本），必须先手工/带 token 发一次；之后的版本才能交给 CI 的 trusted publisher
 
 ## 6. 验证
 
@@ -149,7 +199,13 @@ node .agents/skills/npm-publish/scripts/preflight.mjs toolbox undo    # 指定�
 | 报错 | 原因 | 处理 |
 |---|---|---|
 | `E404`（`npm view`） | 包尚未发布 | 正常，属首发布 |
+| `EOTP` + `error.authUrl`/`doneUrl` | 账号 2FA 为安全密钥，发布需浏览器认证 | 走§5.2：把 authUrl 给用户 → 等确认 → 取 doneUrl 的 token 作 `--otp` |
+| `EOTP`（无 authUrl，提示 `--otp=<code>`） | 账号 2FA 为验证器 App | 向用户要 6 位码，`npm_config_otp=<码> npm publish` |
 | `E403` cannot publish over the previously published versions | 线上已有同版本 | 升版本号后重发 |
 | `E403` You do not have permission | 包名归属他人 / token 无权限 | 换包名或核对 npm 账号 |
 | `ENEEDAUTH` / `E401` | 未登录 / token 失效 | 用户手动 `npm login --registry=https://registry.npmjs.org/` |
 | `EPUBLISHCONFLICT` | 同版本已存在 | 升版本号 |
+
+> 两个坑值得记牢：
+> 1. **账号级 `Authorization only`（关掉 write 2FA）不能免除发布时的 2FA**——实测 registry 照样回 401 OTP required；文档那张表已过时
+> 2. `npm publish --json` 的**成功**输出没有 `error` 键；若脚本只看 authUrl 字段是否存在，会把成功当失败（本次就因此误判过一次）
