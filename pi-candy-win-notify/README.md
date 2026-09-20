@@ -19,11 +19,13 @@ pi -e npm:pi-candy-win-notify     # 临时试用，不写入配置
 ```bash
 git clone https://github.com/CandyMuj/pi-candy-extensions.git
 cd pi-candy-extensions/pi-candy-win-notify   # 进入插件目录
-npm install                                  # koffi 及其 Windows 原生模块（本地安装不会自动装依赖）
+npm install --omit=dev                       # koffi 及其 Windows 原生模块（本地安装不会自动装依赖）
 pi install .                                 # 安装当前目录
 
 pi -e .                                      # 临时试用，不写入配置
 ```
+
+> **⚠️ 不要加 `--omit=optional`**：koffi 的 Windows 原生二进制在 `optionalDependencies` 里（`@koromix/koffi-win32-x64`），跳过会让 koffi 回退到源码编译并因缺少 CMake 而安装失败。
 
 ## 使用
 

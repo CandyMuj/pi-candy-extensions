@@ -32,7 +32,7 @@ pi -e npm:pi-candy-undo      # 临时试用，不写入配置
 ```bash
 git clone https://github.com/CandyMuj/pi-candy-extensions.git
 cd pi-candy-extensions/pi-candy-undo   # 进入插件目录
-npm install                            # 本地安装不会自动装依赖（npm 安装会自动）
+npm install --omit=dev                 # 本地安装不会自动装依赖（npm 安装会自动）；只装运行时依赖
 pi install .                           # 安装当前目录
 
 pi -e .                                # 临时试用，不写入配置

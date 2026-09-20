@@ -59,13 +59,15 @@ npm 安装由 pi 自动执行 `npm install`，无需手动处理依赖。
 ```bash
 git clone https://github.com/CandyMuj/pi-candy-extensions.git
 cd pi-candy-extensions/pi-candy-undo   # 目录名见上方插件列表
-npm install                            # 可选：仅带第三方依赖的插件需要
+npm install --omit=dev                 # 可选：只装运行时依赖（仅带第三方依赖的插件需要）
 pi install .                           # 安装当前目录
 
 pi -e .                                # 临时试用，不写入配置
 ```
 
-本地路径安装**不会**自动安装依赖，是否需要 `npm install` 见各插件 README；上面的命令仅为示例。
+本地路径安装**不会**自动安装依赖，是否需要安装见各插件 README；上面的命令仅为示例。
+
+> **⚠️ 精简依赖只用 `--omit=dev`，不要加 `--omit=optional`**：本仓库有插件依赖 `optionalDependencies` 里的平台二进制，跳过会导致安装失败或运行时不可用。
 
 各插件的依赖与配置细节见各自 README；`pi-candy-toolbox` 内各工具的详细文档见其 `docs/` 目录。
 
