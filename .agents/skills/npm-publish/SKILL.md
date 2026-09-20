@@ -1,6 +1,7 @@
 ---
 name: npm-publish
 description: 把本仓库（pi-candy-extensions）的插件包发布到 npm 官方 registry 的完整流程——解析目标包、登录检查、发布前检查（pack/publish dry-run）、版本号升级、执行发布、发布后验证，全部为非 scoped 包。当用户要求「发布 / 发版 / 上线 / publish / 上传 npm」本仓库插件，或要做发布准备与检查（whoami、线上版本核对、dry-run、版本号）时使用；支持只处理指定插件（通过参数或提示词传包名 / 短名）。
+disable-model-invocation: true
 ---
 
 # npm 发布流程（pi-candy-extensions）

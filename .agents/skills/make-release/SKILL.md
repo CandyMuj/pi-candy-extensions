@@ -1,6 +1,7 @@
 ---
 name: make-release
 description: 为多插件 monorepo（pi-candy-extensions）发布 release：确定 release-YYYY.MM.DD 标签、生成按「插件→工具」固定顺序的 release notes（每个插件/工具都列出，无更新则标记）、先维护根 CHANGELOG.md 再经用户确认后打 tag 并一并提交推送、用 gh 创建 GitHub Release。当用户要求「发布 release / 打 release tag / 生成 release notes / 更新 changelog」时使用。
+disable-model-invocation: true
 ---
 
 # 发布 release（pi-candy-extensions）
