@@ -13,6 +13,16 @@
 >
 > 回退验证正常后，如需升级请逐个插件回归测试后再升。
 
+> **🖥️ 验证环境：fullscreen 模式**
+>
+> 本仓库所有插件均在全屏（alt-screen）模式下开发与验证，推荐在全局 `~/.pi/agent/settings.json` 中启用：
+>
+> ```json
+> { "tuiMode": "fullscreen" }
+> ```
+>
+> pi 的默认模式为 `regular`（inline）。鼠标上报只在 fullscreen 下由 pi 开启（regular 模式 TUI 不捕获鼠标），因此依赖鼠标的功能——如 `pi-candy-toolbox` 的 `click-cursor` 点击定位、`transcript-jump` 跳转——在 regular 模式下不可用；各插件的模式差异见其自身文档。
+
 ## 推荐使用的 pi 版本
 
 下表选的是 **pi 本体（`@earendil-works/pi-coding-agent`）的版本**，与本仓库插件的版本无关，按**所需功能**选：
