@@ -1,5 +1,6 @@
 # IDE
 .idea/
+.DS_Store
 
 # Python
 __pycache__/
@@ -13,3 +14,4 @@ node_modules/
 logs/
 dist/
 target/
+*.log
