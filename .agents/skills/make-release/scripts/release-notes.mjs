@@ -133,10 +133,13 @@ function main() {
   const tools = toolOrder(newRef);
 
   // 收集提交（含文件），再按插件/工具分类
-  // 注意：git log A..B 会排除 A 可达的提交；首个 release（prev=首个提交）时用 rev-list 列出全部提交，
-  // 否则会漏掉最初的提交。
-  const logResult = firstRelease
-    ? git(["rev-list", "--format=%H%x1e%s", "--no-merges", "HEAD"])
+  // 注意：git log A..B 会排除 A 可达的提交；当 prev 就是首个提交时（无父提交），
+  // 改用 rev-list 列全量提交，否则会漏掉最初的提交。
+  const prevHash = git(["rev-parse", prevRef]).out;
+  const rootHash = git(["rev-list", "--max-parents=0", "HEAD"]).out.split("\n")[0];
+  const fullRange = prevHash === rootHash;
+  const logResult = fullRange
+    ? git(["rev-list", "--format=%H%x1e%s", "--no-merges", newRef])
     : git(["log", "--no-merges", "--format=%H%x1e%s", `${prevRef}..${newRef}`]);
   const commits = logResult.ok
     ? logResult.out.split("\n").filter(Boolean).flatMap((line) => {
@@ -161,11 +164,15 @@ function main() {
 
   for (const c of commits) {
     c.files = filesOf(c.hash);
-    const owner = plugins.find((p) => c.files.some((f) => f.startsWith(`${p}/`)));
-    if (!owner) {
+    // 发布提交自身（只改 CHANGELOG.md）不列入 notes，避免循环引用
+    if (c.files.length > 0 && c.files.every((f) => f === "CHANGELOG.md")) continue;
+    // 归属：触及多个插件目录的提交归「仓库公共」；只触及一个归该插件；都不触及也归公共
+    const touched = plugins.filter((p) => c.files.some((f) => f.startsWith(`${p}/`)));
+    if (touched.length !== 1) {
       other.push(c);
       continue;
     }
+    const owner = touched[0];
     const entry = pluginEntries.find((e) => e.name === owner);
     entry.commits.push(c);
     let tool = null;
@@ -209,7 +216,7 @@ function main() {
 
   // ── Markdown 草案 ──
   const short = (h) => h.slice(0, 7);
-  const bullet = (c) => `- ${c.subject} (#${short(c.hash)})`;
+  const bullet = (c) => `- ${c.subject} (${short(c.hash)})`;
   const lines = [];
   lines.push(`# ${tagName}`);
   lines.push("");
