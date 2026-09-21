@@ -87,6 +87,20 @@ npm publish --dry-run             # 模拟发布：不上传、不产生任何�
 - dry-run 显示的版本号 == 计划发布的版本号
 - 线上已存在同版本 → 必须先升版本号，否则发布报 403
 
+### 发布物仿真（每个要发布的包，先验证后发布）
+
+```bash
+cd pi-candy-toolbox && npm pack --pack-destination /tmp/pi-temp   # 产出与将发布同源的 tarball
+mkdir -p /tmp/pi-temp/verify && cd /tmp/pi-temp/verify && npm init -y >/dev/null
+npm install ../pi-candy-toolbox-1.0.0.tgz --legacy-peer-deps --omit=dev   # 复刻 pi 的安装参数
+pi -e /tmp/pi-temp/verify/node_modules/pi-candy-toolbox -p "ok"   # 退出码 0 且无扩展报错 = 通过
+rm -rf /tmp/pi-temp/verify /tmp/pi-temp/*.tgz
+```
+
+- 验证对象是**发布物本身 + 其真实依赖闭包**（不是本地开发目录）→ 缺文件、依赖没进包、postinstall 失败、register 报错都会在这里暴露
+- 每次消耗一次极简模型调用；失败 → 修复后重新仿真，不得直接 publish
+- 局限：print 模式不走 TUI 路径，TUI 专属功能（点击定位、跳转等）留待发布后用户真机验证
+
 > ⚠ `npm publish --dry-run` **不会**触发 2FA 检查（永远通过），所以是否要 2FA 只有在§5 的真实发布尝试里才能知道。
 
 以上元数据/文件列表检查已由 preflight 脚本自动完成（见文末），人工只需确认输出里的 `⚠` 项。
@@ -175,10 +189,11 @@ cd ../pi-candy-win-notify && npm publish
 ```bash
 npm view pi-candy-toolbox version --registry=https://registry.npmjs.org/
 npm view pi-candy-toolbox dist.tarball --registry=https://registry.npmjs.org/
+pi -e npm:pi-candy-toolbox -p "ok"     # 发布后冒烟：真实 registry 产物，退出码 0 且无扩展报错
 ```
 
 - 输出 == 刚发布的版本号
-- 可选冒烟：`pi -e npm:pi-candy-toolbox`（临时试用，不写入配置）
+- 冒烟失败 → 停下向用户确认后才可下架（不可擅自执行）：`npm unpublish pi-candy-toolbox@1.0.0 -f`（72 小时内可下架；同包同版本 24 小时内不可重发）
 
 ## 7. 收尾汇报
 
