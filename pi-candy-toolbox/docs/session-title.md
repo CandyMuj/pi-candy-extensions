@@ -43,8 +43,8 @@
 {
   "session-title": {
     "mode": "llm",
-    "maxLength": 20,
-    "sampleChars": 200,
+    "maxLength": 30,
+    "sampleChars": 300,
     "autoFirst": true,
     "model": "openrouter/deepseek-chat"
   }
@@ -54,8 +54,8 @@
 | 配置项 | 默认 | 说明 |
 |--------|------|------|
 | `mode` | `"llm"` | 生成模式：`llm` 用模型生成（失败自动回退 `local`）；`local` 零 token 本地截断 |
-| `maxLength` | `20` | 标题字符上限（中文字符） |
-| `sampleChars` | `200` | 每段消息采样字符数 |
+| `maxLength` | `30` | 标题字符上限（中文字符） |
+| `sampleChars` | `300` | 每段消息采样字符数 |
 | `autoFirst` | `true` | 首次对话结束自动生成（仅当会话尚无标题时触发） |
 | `model` | 当前会话模型 | 指定生成标题用的模型（`provider/modelId` 格式，如 `openrouter/deepseek-chat`）。可配置一个小而便宜的模型专用于标题这类小任务，更快更省；配置的模型不可用时自动回退当前会话模型，再失败回退 `local` |
 
@@ -72,7 +72,7 @@
 | 末条 user | 头部 | 当前方向 |
 | 末条 assistant | 尾部 | 当前进展（assistant 结论通常在尾部） |
 
-- 输入恒定 ≈ 300~500 tokens；只有单条消息时自动省略重复段落
+- 输入上限恒定 = 4 × `sampleChars` 字符（默认 4 × 300 = 1200 字符），与会话长度无关；只有单条消息时自动省略重复段落
 - 输出预算：`maxTokens = maxLength × 2 + 20`（与配置联动：中文 1 字 ≤2 token 的保守估计 + 缓冲，不截断标题同时保留成本上限）、`temperature ≈ 0.3`，system prompt 要求 ≤ `maxLength` 字一行输出
 
 ### 双模式与回退链
