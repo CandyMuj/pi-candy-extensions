@@ -14,6 +14,10 @@ export const MESSAGES = {
     zh: "↑↓ 选择 · ←/→ 翻页 · Enter 确认 · Esc 取消 · 直接输入过滤",
     en: "↑↓ select · ←/→ page · Enter confirm · Esc cancel · type to filter",
   },
+  "picker.computing": {
+    zh: "计算中…",
+    en: "computing…",
+  },
   "picker.noChanges": {
     zh: "无文件改动",
     en: "No code changes",

@@ -34,9 +34,21 @@ export interface SessionApi {
   notify(message: string, type: "info" | "warning" | "error"): void;
 }
 
+/** 结构化选择项：id 为选中回调的返回值，text 为原始文案。 */
+export interface PickerItem {
+  id: string;
+  text: string;
+}
+
 /** 仅在执行命令时可用的一组额外能力。 */
 export interface CommandApi extends SessionApi {
   select(title: string, options: string[]): Promise<string | undefined>;
+  /** 带异步统计的选择器：立即打开、按页计算统计并动态刷新；选中返回条目 id。 */
+  pickMessage(
+    title: string,
+    items: readonly PickerItem[],
+    statsFor: (id: string) => Promise<string>,
+  ): Promise<string | undefined>;
   input(title: string, placeholder?: string): Promise<string | undefined>;
   navigateTree(
     targetId: string,

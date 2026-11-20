@@ -221,9 +221,8 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
 ```
 1. await ctx.waitForIdle()
 2. 门控检查（enabled、ctx.hasUI、storage 可用）→ 不满足则 notify 后返回
-3. 构建消息列表：branch 上 role==="user" 的条目（倒序，最新在前），
-   每条带 diff 摘要（对该消息快照做 dry-run 恢复统计：文件数/+行/-行；快照缺失 → 最近更早快照）
-4. cmd.select("Rewind to before…", 选项)（自定义选择器 `extensions/picker.ts`：↑↓ 选择 + 输入过滤 + ←/→ 翻页，替换原生 `ctx.ui.select`）→ 取消则无事发生
+3. 构建消息列表：branch 上 role==="user" 的条目（倒序，最新在前），每条带 diff 摘要（对该消息快照做 dry-run 恢复统计：文件数/+行/-行；快照缺失 → 最近更早快照）
+4. cmd.pickMessage("Rewind to before…", 选项)（自定义选择器 `extensions/picker.ts`：↑↓ 选择 + 输入过滤 + ←/→ 翻页，替换原生 `ctx.ui.select`）→ 取消则无事发生。统计不阻塞打开：选择器立即显示（未算完的条目占位"计算中…"），按页异步计算（可见页优先、预载下一页，4 并发），算完动态刷新；选中返回条目 id，缓存同快照的计算结果（promise 级去重，action 菜单共享）
 5. 计算目标快照 S_M；dry-run 得出改动统计
 6. 菜单（与 CC 一致；文案走 i18n，`language` 配置见 §7，上列为 en 文案）：
      有文件改动：  1. Restore code and conversation  2. Restore conversation

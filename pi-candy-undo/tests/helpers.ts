@@ -117,6 +117,16 @@ export class FakeSession {
         const answer = this.selectQueue.shift();
         return answer ? answer(options) : undefined;
       },
+      pickMessage: async (title, items, _statsFor) => {
+        // 答案谓词吃文本（旧 helper 可直接复用），再按文本回查 id；调用顺序与 select 共用记录
+        this.selectCalls.push([title, ...items.map((item) => item.text)]);
+        const answer = this.selectQueue.shift();
+        if (!answer) {
+          return undefined;
+        }
+        const pickedText = answer(items.map((item) => item.text));
+        return items.find((item) => item.text === pickedText)?.id;
+      },
       input: async (title) => {
         this.inputCalls.push(title);
         return this.inputQueue.shift();

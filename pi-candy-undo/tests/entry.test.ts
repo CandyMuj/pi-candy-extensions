@@ -41,7 +41,11 @@ function createStub(cwd: string): { pi: unknown; state: StubState; ctx: unknown 
   const ui = {
     notify: (message: string, type: "info" | "warning" | "error") => state.notices.push({ message, type }),
     // 自定义选择器：构造组件后用排队的选择谓词决议，等价于用户选中并按 Enter（Esc/取消 = null）。
-    custom: async (factory: (...args: unknown[]) => { options?: readonly string[] }) => {
+    // 统计模式（pickerItems）按文本谓词匹配并返回条目 id；纯文本模式（options）返回选项文案。
+    custom: async (factory: (...args: unknown[]) => {
+      options?: readonly string[];
+      pickerItems?: readonly { id: string; text: string }[];
+    }) => {
       let resolve!: (value: unknown) => void;
       const promise = new Promise<unknown>((r) => {
         resolve = r;
@@ -53,7 +57,13 @@ function createStub(cwd: string): { pi: unknown; state: StubState; ctx: unknown 
         (value: unknown) => resolve(value),
       );
       const answer = state.selectQueue.shift();
-      const picked = answer && component.options ? answer([...component.options]) : undefined;
+      let picked: unknown;
+      if (answer && component.pickerItems) {
+        const pickedText = answer(component.pickerItems.map((item) => item.text));
+        picked = component.pickerItems.find((item) => item.text === pickedText)?.id;
+      } else if (answer && component.options) {
+        picked = answer([...component.options]);
+      }
       resolve(picked ?? null);
       return promise;
     },

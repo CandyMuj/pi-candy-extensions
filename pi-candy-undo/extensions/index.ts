@@ -11,7 +11,7 @@ import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionCommandC
 import path from "node:path";
 import { runRedo, runUndo } from "../src/commands.ts";
 import { loadConfig } from "../src/config.ts";
-import { pickFromList } from "./picker.ts";
+import { pickFromList, pickMessageFromList } from "./picker.ts";
 import { UndoSession, type CommandApi, type SessionApi } from "../src/session.ts";
 import type { BranchEntry } from "../src/types.ts";
 
@@ -41,6 +41,8 @@ function createCommandApi(ctx: ExtensionCommandContext, session: UndoSession): C
   return {
     ...session.api,
     select: (title, options) => pickFromList(ctx.ui, title, options, session.t("picker.hint")),
+    pickMessage: (title, items, statsFor) =>
+      pickMessageFromList(ctx.ui, title, items, session.t("picker.hint"), session.t("picker.computing"), statsFor),
     input: (title, placeholder) => ctx.ui.input(title, placeholder),
     navigateTree: (targetId, options) => ctx.navigateTree(targetId, options),
     waitForIdle: () => ctx.waitForIdle(),

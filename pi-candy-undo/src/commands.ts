@@ -164,28 +164,6 @@ export function buildActionTitle(session: UndoSession, message: UserMessage, now
   return lines.join("\n");
 }
 
-/** 以受限并发对一组元素执行异步任务。 */
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    for (;;) {
-      const index = cursor;
-      cursor += 1;
-      if (index >= items.length) {
-        return;
-      }
-      results[index] = await worker(items[index] as T);
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
-
 export async function runUndo(session: UndoSession, cmd: CommandApi): Promise<void> {
   if (!session.active) {
     session.notifyKey(session.config.enabled ? "notify.noUI" : "notify.disabled", undefined, "warning");
@@ -200,41 +178,42 @@ export async function runUndo(session: UndoSession, cmd: CommandApi): Promise<vo
     return;
   }
 
-  const statsBySnapshotId = new Map<string, RestoreStats>();
+  const statsBySnapshotId = new Map<string, Promise<RestoreStats>>();
   const targets = new Map<string, Snapshot>();
-  const statsFor = async (snapshot: Snapshot): Promise<RestoreStats> => {
+  const statsFor = (snapshot: Snapshot): Promise<RestoreStats> => {
     const cached = statsBySnapshotId.get(snapshot.id);
     if (cached) {
       return cached;
     }
-    const stats = await computeStats(session, snapshot);
-    statsBySnapshotId.set(snapshot.id, stats);
-    return stats;
+    // 缓存存 promise：并发计算同一快照（选择器队列 + 后续 action 菜单）共享同一次计算
+    const pending = computeStats(session, snapshot);
+    statsBySnapshotId.set(snapshot.id, pending);
+    return pending;
   };
 
-  const options: string[] = [];
-  const optionToMessage = new Map<string, UserMessage>();
-  const prepared = await mapLimit(messages, 8, async (message) => {
+  // 目标快照解析是纯内存操作，先全部解析；文件统计留给选择器按页异步计算（会话多时不再阻塞打开）。
+  const items = messages.map((message) => ({ id: message.entry.id, text: message.text }));
+  const targetById = new Map<string, Snapshot | undefined>();
+  for (const message of messages) {
     const target = resolveTargetSnapshot(session.store.state.snapshots, branch, message.entry.id);
-    const stats: RestoreStats = target
-      ? await statsFor(target)
-      : { filesChanged: [], insertions: 0, deletions: 0, skipped: [] };
-    return { message, target, stats };
-  });
-  for (const [index, item] of prepared.entries()) {
-    if (item.target) {
-      targets.set(item.message.entry.id, item.target);
+    targetById.set(message.entry.id, target);
+    if (target) {
+      targets.set(message.entry.id, target);
     }
-    const label = `${index + 1}. ${truncate(item.message.text, 60)} · ${formatStats(session, item.stats)}`;
-    options.push(label);
-    optionToMessage.set(label, item.message);
   }
 
-  const picked = await cmd.select(session.t("picker.title", { count: options.length }), options);
-  if (picked === undefined) {
+  const pickedId = await cmd.pickMessage(
+    session.t("picker.title", { count: messages.length }),
+    items,
+    async (id) => {
+      const target = targetById.get(id);
+      return target ? formatStats(session, await statsFor(target)) : "";
+    },
+  );
+  if (pickedId === undefined) {
     return;
   }
-  const message = optionToMessage.get(picked);
+  const message = messages.find((candidate) => candidate.entry.id === pickedId);
   if (!message) {
     return;
   }
@@ -243,7 +222,7 @@ export async function runUndo(session: UndoSession, cmd: CommandApi): Promise<vo
     session.notifyKey("notify.nothingToUndo", undefined, "info");
     return;
   }
-  const stats = await statsFor(target);
+  const stats = await statsFor(target); // 通常已被选择器后台算好（缓存命中），最坏单算一个快照
   const hasChanges = stats.filesChanged.length > 0;
 
   const actions: Array<{ action: Action; label: string }> = [];
