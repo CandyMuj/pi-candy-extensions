@@ -22,17 +22,19 @@
 import { AssistantMessageComponent, getMarkdownTheme, getSelectListTheme, UserMessageComponent, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   Container,
+  type Component,
   type Focusable,
   Input,
   type KeyId,
   type SelectItem,
   SelectList,
-  ScrollView,
   Spacer,
   Text,
   fuzzyMatch,
   getKeybindings,
   truncateToWidth,
+  type TuiMouseEvent,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { ToolDefinition } from "../core/config.ts";
 import type { Logger } from "../core/log.ts";
@@ -85,7 +87,7 @@ interface PickerCtx {
   };
 }
 
-type ThemeLike = { fg: (name: string, text: string) => string; bold: (text: string) => string };
+type ThemeLike = { fg: (name: string, text: string) => string; bold: (text: string) => string; bg?: (name: string, text: string) => string };
 
 /** 横向分隔线（宽度自适应；颜色显式传入——jiti 模块缓存下全局主题可能失效） */
 class BorderLine {
@@ -393,10 +395,29 @@ export function buildViewerSections(entries: EntryLike[], entryId: string): View
   return sections;
 }
 
-/** 压缩提问的只读查看器（overlay）：原生消息组件渲染，Esc/Enter 关闭返回列表；↑↓/翻页/滚轮滚动 */
-class HistoryViewer extends Container implements Focusable {
-  private readonly scroll: ScrollView;
+/** 查看器固定开销行数：顶边框 + 空行 + 标题 + 空行 + 提示行 + 空行 */
+const VIEWER_FIXED_ROWS = 6;
+/** 内容区最小行数 */
+const VIEWER_MIN_CONTENT_ROWS = 5;
+
+/**
+ * 压缩提问的只读查看器（overlay 卡片）。
+ * overlay 的子组件不做布局测量（renderedOverlayLayouts 只记录边界，不处理 LAYOUT_NODE），
+ * ScrollView 在里面永远测不到视口 → 改自绘窗口滚动：render 时按 offset 切片，
+ * 滚轮由 handleMouse 消费、↑↓/翻页由 handleInput 处理。
+ * 样式：cardBg 底色 + 完整盒边框，与转录背景清晰区隔，避免视觉凌乱。
+ */
+export class HistoryViewer extends Container implements Focusable {
+  private readonly title: string;
+  private readonly hint = "↑↓ 滚动 · PageUp/PageDown 翻页 · Esc/Enter 返回列表";
+  private readonly theme: ThemeLike;
+  private readonly sections: ViewerSection[];
+  private readonly termRows: number;
+  private readonly requestRender: () => void;
   private readonly onClose: () => void;
+  private offset = 0;
+  private contentLines: string[] = [];
+  private contentWidthCache = -1;
   private _focused = false;
 
   get focused(): boolean {
@@ -406,41 +427,89 @@ class HistoryViewer extends Container implements Focusable {
     this._focused = value;
   }
 
-  constructor(title: string, sections: ViewerSection[], theme: ThemeLike, onClose: () => void) {
+  constructor(
+    title: string,
+    sections: ViewerSection[],
+    theme: ThemeLike,
+    tui: { terminal?: { rows?: number }; requestRender?: () => void },
+    onClose: () => void,
+  ) {
     super();
+    this.title = title;
+    this.theme = theme;
+    this.sections = sections;
+    this.termRows = tui?.terminal?.rows ?? 24;
+    this.requestRender = tui?.requestRender ?? (() => {});
     this.onClose = onClose;
-    this.addChild(new BorderLine((text) => theme.fg("border", text)));
-    this.addChild(new Spacer(1));
-    this.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
-    this.addChild(new Spacer(1));
-    // 提示行放在正文上方：内容超高时也不会被裁剪
-    this.addChild(new Text(theme.fg("dim", "↑↓ 滚动 · PageUp/PageDown 翻页 · Esc/Enter 返回列表"), 1, 0));
-    this.addChild(new Spacer(1));
+  }
 
-    // 正文继承 pi 原生渲染：用户消息/助手消息组件与转录完全一致（markdown、主题自动同步）
-    const body = new Container();
-    for (const s of sections) {
+  private maxContentRows(): number {
+    return Math.max(VIEWER_MIN_CONTENT_ROWS, Math.floor(this.termRows * 0.85) - VIEWER_FIXED_ROWS);
+  }
+
+  /** 渲染全部正文行（按内容宽度缓存）；正文继承 pi 原生消息组件，与转录渲染一致 */
+  private buildContentLines(innerWidth: number): string[] {
+    if (this.contentWidthCache === innerWidth) return this.contentLines;
+    this.contentWidthCache = innerWidth;
+    const lines: string[] = [];
+    for (const s of this.sections) {
+      if (lines.length > 0) lines.push("");
       if (s.kind === "prompt") {
-        body.addChild(new UserMessageComponent(s.text ?? "", getMarkdownTheme(), 1));
+        const component = new UserMessageComponent(s.text ?? "", getMarkdownTheme(), 1);
+        lines.push(...component.render(innerWidth));
       } else if (s.kind === "assistant" && s.message) {
-        body.addChild(
-          new AssistantMessageComponent(
-            s.message as ConstructorParameters<typeof AssistantMessageComponent>[0],
-            undefined,
-            getMarkdownTheme(),
-            undefined,
-            1,
-          ),
+        const component = new AssistantMessageComponent(
+          s.message as ConstructorParameters<typeof AssistantMessageComponent>[0],
+          undefined,
+          getMarkdownTheme(),
+          undefined,
+          1,
         );
+        lines.push(...component.render(innerWidth));
       } else {
-        body.addChild(new Text(theme.fg("dim", s.text ?? ""), 1, 0));
+        lines.push(this.theme.fg("dim", s.text ?? ""));
       }
-      body.addChild(new Spacer(1));
     }
-    this.scroll = new ScrollView(body, { follow: "none", primary: true, overscroll: "contain", scrollbar: "auto" });
-    this.addChild(this.scroll);
-    this.addChild(new Spacer(1));
-    this.addChild(new BorderLine((text) => theme.fg("border", text)));
+    this.contentLines = lines;
+    return lines;
+  }
+
+  private clampOffset(): void {
+    const maxOffset = Math.max(0, this.contentLines.length - this.maxContentRows());
+    this.offset = Math.max(0, Math.min(this.offset, maxOffset));
+  }
+
+  private scrollBy(delta: number): void {
+    this.clampOffset();
+    this.offset = Math.max(0, Math.min(Math.max(0, this.contentLines.length - this.maxContentRows()), this.offset + delta));
+    this.requestRender();
+  }
+
+  render(width: number): string[] {
+    const w = Math.max(8, width);
+    const inner = w - 2;
+    const rows = this.maxContentRows();
+    const all = this.buildContentLines(inner);
+    this.clampOffset();
+
+    const border = (text: string): string => this.theme.fg("border", text);
+    const bg = (text: string): string => (this.theme.bg ? this.theme.bg("cardBg", text) : text);
+    const pad = (line: string): string => {
+      const vw = visibleWidth(line);
+      return vw > inner ? truncateToWidth(line, inner, "…") : line + " ".repeat(inner - vw);
+    };
+
+    const out: string[] = [];
+    out.push(border(`┌${"─".repeat(inner)}┐`));
+    out.push(border("│") + bg(pad(this.theme.fg("accent", this.theme.bold(this.title)))) + border("│"));
+    out.push(border("│") + bg(pad("")) + border("│"));
+    out.push(border("│") + bg(pad(this.theme.fg("dim", this.hint))) + border("│"));
+    out.push(border("│") + bg(pad("")) + border("│"));
+    const window = all.slice(this.offset, this.offset + rows);
+    for (const line of window) out.push(border("│") + bg(pad(line)) + border("│"));
+    while (out.length < rows + VIEWER_FIXED_ROWS - 1) out.push(border("│") + bg(pad("")) + border("│"));
+    out.push(border(`└${"─".repeat(inner)}┘`));
+    return out;
   }
 
   handleInput(data: string): void {
@@ -449,22 +518,27 @@ class HistoryViewer extends Container implements Focusable {
       this.onClose();
       return;
     }
-    if (kb.matches(data, "tui.select.up") || kb.matches(data, "tui.editor.cursorUp")) {
-      this.scroll.scrollBy(-1);
-      return;
+    const up = kb.matches(data, "tui.select.up") || kb.matches(data, "tui.editor.cursorUp");
+    const down = kb.matches(data, "tui.select.down") || kb.matches(data, "tui.editor.cursorDown");
+    const pageUp = kb.matches(data, "tui.altScreen.pageUp") || kb.matches(data, "tui.select.pageUp");
+    const pageDown = kb.matches(data, "tui.altScreen.pageDown") || kb.matches(data, "tui.select.pageDown");
+    const rows = this.maxContentRows();
+    const delta = pageUp ? -(rows - 1) : pageDown ? rows - 1 : up ? -1 : down ? 1 : 0;
+    if (delta !== 0) this.scrollBy(delta);
+  }
+
+  /** 滚轮：overlay 命中后事件会派发到这里（ScrollView 在 overlay 中不可用），自行消费滚动 */
+  handleMouse(event: TuiMouseEvent):
+    | { handled: true; target: { component: Component; originX: number; originY: number; width: number; height: number } }
+    | undefined {
+    if (event.type === "wheel" && typeof event.wheelDelta === "number" && event.wheelDelta !== 0) {
+      this.scrollBy(event.wheelDelta);
+      return {
+        handled: true,
+        target: { component: this, originX: event.x, originY: event.y, width: event.width, height: event.height },
+      };
     }
-    if (kb.matches(data, "tui.select.down") || kb.matches(data, "tui.editor.cursorDown")) {
-      this.scroll.scrollBy(1);
-      return;
-    }
-    if (kb.matches(data, "tui.altScreen.pageUp") || kb.matches(data, "tui.select.pageUp")) {
-      this.scroll.scrollBy(-Math.max(1, this.scroll.viewportHeight - 1));
-      return;
-    }
-    if (kb.matches(data, "tui.altScreen.pageDown") || kb.matches(data, "tui.select.pageDown")) {
-      this.scroll.scrollBy(Math.max(1, this.scroll.viewportHeight - 1));
-      return;
-    }
+    return undefined;
   }
 }
 
@@ -682,7 +756,13 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
           await ctx.ui.custom<unknown>(
             (tui, theme, _keybindings, done) => {
               tuiRef = tui as TuiLike;
-              return new HistoryViewer(`历史提问 #${prompt.index}（已压缩 · 只读）`, sections, theme as ThemeLike, () => done(undefined));
+              return new HistoryViewer(
+                `历史提问 #${prompt.index}（已压缩 · 只读）`,
+                sections,
+                theme as ThemeLike,
+                tui as { terminal?: { rows?: number }; requestRender?: () => void },
+                () => done(undefined),
+              );
             },
             // 居中 overlay：滚轮/焦点优先路由到查看器，不会带动转录；高度可控，提示行不被裁剪
             { overlay: true, overlayOptions: { width: "90%", maxHeight: "85%", anchor: "center" } },

@@ -10,6 +10,7 @@ initTheme("dark"); // SelectList/getSelectListTheme 渲染需要已初始化的�
 
 const {
   default: transcriptJump,
+  HistoryViewer,
   JumpDialog,
   buildViewerSections,
   findTranscriptContainers,
@@ -41,7 +42,7 @@ const a2tool = {
 const u3 = { type: "message", id: "u3", timestamp: NOW - 60_000, message: { role: "user", content: [{ type: "text", text: "第三个问题" }] } };
 const ENTRIES = [u1, a1, u2, a2tool, u3];
 
-const themeStub = { fg: (_name: string, text: string) => text, bold: (text: string) => text };
+const themeStub = { fg: (_name: string, text: string) => text, bold: (text: string) => text, bg: (_name: string, text: string) => text };
 
 /** 假组件 */
 function userComponent(lines: string[]): unknown {
@@ -76,6 +77,7 @@ function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boo
   const lines = options.contentLines ?? Array.from({ length: 15 }, () => "");
   const tui: any = {
     mode: options.mode ?? "fullscreen",
+    terminal: { rows: 24, columns: 80 },
     requestRender: () => renders.push(1),
     children: [doc],
     getPrimaryScrollView: () => scrollView,
@@ -355,6 +357,59 @@ test("buildViewerSections tolerates missing entries and non-message types", () =
     { kind: "prompt", text: "第一个问题" },
     { kind: "assistant", message: a1.message },
   ]);
+});
+
+test("viewer scrolls by keys and wheel and keeps the card chrome intact", () => {
+  const sections: any[] = Array.from({ length: 30 }, (_, i) => ({ kind: "tools", text: `L${i}` }));
+  const closed: number[] = [];
+  const renders: number[] = [];
+  const viewer = new HistoryViewer(
+    "测试查看器",
+    sections,
+    themeStub,
+    { terminal: { rows: 24 }, requestRender: () => renders.push(1) },
+    () => closed.push(1),
+  );
+
+  const lines = () => viewer.render(120);
+  const firstContentLine = () => lines()[5] ?? "";
+  // 卡片骨架：顶边框/标题/空/提示/空 + 内容窗口（24*0.85=20 - 固定 6 = 14 行）+ 底边框
+  const first = lines();
+  assert.match(first[0] ?? "", /┌/);
+  assert.match(first[first.length - 1] ?? "", /└/);
+  assert.equal(first.length, 20);
+  assert.ok(firstContentLine().includes("L0"), "初始显示第一条内容");
+  assert.ok(renders.length >= 0);
+
+  viewer.handleInput("\x1b[B"); // ↓
+  viewer.handleInput("\x1b[B");
+  assert.ok(firstContentLine().includes("L1"), "下移两行后首行变为第二条内容");
+  assert.equal(renders.length, 2, "滚动应请求重绘");
+
+  const wheelEvent = (wheelDelta: number) => ({
+    type: "wheel",
+    wheelDelta,
+    button: "none",
+    x: 10,
+    y: 10,
+    width: 120,
+    height: 20,
+    screenX: 10,
+    screenY: 10,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  });
+  const wheelResult = viewer.handleMouse(wheelEvent(10) as any);
+  assert.deepEqual(wheelResult?.handled, true);
+  assert.ok(firstContentLine().includes("L6"), "滚轮向下继续滚动");
+
+  viewer.handleMouse(wheelEvent(-1000) as any);
+  assert.ok(firstContentLine().includes("L29") === false, "回滚到顶后不再显示尾部");
+  assert.ok(firstContentLine().includes("L0"), "回滚到顶后显示第一条");
+
+  viewer.handleInput("\x1b"); // Esc
+  assert.deepEqual(closed, [1]);
 });
 
 /* ── 命令 / 快捷键集成 ──────────────────────────────────────────── */
