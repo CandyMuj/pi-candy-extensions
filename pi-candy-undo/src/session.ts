@@ -242,7 +242,7 @@ export class UndoSession {
     }
   }
 
-  async onBeforeAgentStart(prompt: string): Promise<void> {
+  async onBeforeAgentStart(prompt: string | undefined): Promise<void> {
     if (!this.active) {
       return;
     }

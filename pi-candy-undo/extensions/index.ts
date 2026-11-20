@@ -96,7 +96,8 @@ export default function piCandyUndo(pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
-    await currentSession(ctx)?.onBeforeAgentStart(event.prompt);
+    // pi 1.5 起事件为判别联合：仅用户消息分支（messageType: "user"）带 prompt
+    await currentSession(ctx)?.onBeforeAgentStart(event.messageType === "user" ? event.prompt : undefined);
   });
 
   pi.on("turn_end", async (_event, ctx) => {
