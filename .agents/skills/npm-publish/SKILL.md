@@ -69,6 +69,11 @@ npm view pi-candy-toolbox versions --registry=https://registry.npmjs.org/
 - `E404` → 该包尚未发布（首发布，包名未被占用）
 - 记录线上版本，用来判断：需要升版本 / 待发版本是否已存在
 
+**发布清单过滤（无变更的包默认跳过）**：
+
+- 本地 `version` 已存在于线上 → 该包**默认跳过、不进发布清单**；但「跳过 or 升版本」必须**逐包向用户确认**（preflight 会把这类包记为阻塞项，逐包问用户即可，不要静默跳过）
+- 向用户提交确认表时固定两列：**本次将发布 X 个（列出包名@版本）/ 跳过 Y 个（无版本变更）**，用户确认后才进 §5
+
 ## 3. 发布前检查（逐包，在包目录内）
 
 ```bash
@@ -85,7 +90,7 @@ npm publish --dry-run             # 模拟发布：不上传、不产生任何�
 - **文件列表**：`files` 里每个路径都真实存在（防拼写错）；README/文档引用到的资源（如 `docs/*.md`、`scripts/generate-themes.mjs`、`extensions/host.ps1`）都在白名单内，不能少也不能多带内部文件
 - **依赖声明**：运行时 import 的 pi 核心包（`@earendil-works/pi-coding-agent`、`pi-tui`、`pi-ai`、`pi-agent-core`）必须声明在 `peerDependencies`（`"*"`），**并配套 `peerDependenciesMeta.<pkg>.optional = true`**；`import type` 不算运行时依赖。原因：pi 在 loader 层用 alias/virtual module 把这些包指向宿主自己的实现（`packages/coding-agent/src/core/extensions/loader.ts`），运行时根本不用扩展的 node_modules；标 `optional` 后 npm 不会自动装（纯 npm 用户与开发机少拉一份 400MB+ 副本），语义上是明确的「宿主提供」。需要本地 typecheck 时，把该包同时放进 `devDependencies`（如 `^0.85.1`）
 - dry-run 显示的版本号 == 计划发布的版本号
-- 线上已存在同版本 → 必须先升版本号，否则发布报 403
+- 线上已存在同版本 → 该包视为「无变更，默认跳过」（见 §2 发布清单过滤）；若确认要发布该包，必须先升版本号，否则发布报 403
 
 ### 发布物仿真（每个要发布的包，先验证后发布）
 
@@ -197,7 +202,7 @@ pi -e npm:pi-candy-toolbox -p "ok"     # 发布后冒烟：真实 registry 产�
 
 ## 7. 收尾汇报
 
-给出结果表：包名 / 版本 / 结果（成功或失败原因） / 验证输出，并提示下一步（提交版本号、`git push`、README 是否需同步）。README 的安装命令（`pi install npm:<包名>`）在包名不变时无需改动。
+给出结果表：包名 / 版本 / 结果（成功或失败原因） / 验证输出；**固定附上「已跳过（无版本变更）」清单**；并提示下一步（提交版本号、`git push`、README 是否需同步）。README 的安装命令（`pi install npm:<包名>`）在包名不变时无需改动。
 
 ## 辅助脚本
 
