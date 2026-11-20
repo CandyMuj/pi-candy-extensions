@@ -127,11 +127,18 @@ export function makeCtx(options: CtxOptions = {}): CtxStub {
   const statuses = new Map<string, string | undefined>();
   const widgetKeys: string[] = [];
   const terminalHandlers: Array<(data: string) => unknown> = [];
-  const custom: CustomStub = {};
-  let resolveCustom!: (value: any) => void;
-  const customPromise = new Promise<any>((resolve) => {
-    resolveCustom = resolve;
-  });
+  // ui.custom 桩：每次调用排队一个新的 promise；resolveCustom 按 FIFO 完成（选择器→查看器→选择器 的多轮循环）
+  const customFactories: Array<(...args: any[]) => unknown> = [];
+  const customResolvers: Array<(value: any) => void> = [];
+  let customOptions: unknown;
+  const custom: CustomStub = {
+    get factory() {
+      return customFactories[customFactories.length - 1];
+    },
+    get options() {
+      return customOptions;
+    },
+  };
   const tui: TuiStub = {
     children: options.editor === undefined ? [] : [{ children: [options.editor] }],
     inputListeners: new Set(),
@@ -159,10 +166,10 @@ export function makeCtx(options: CtxOptions = {}): CtxStub {
         terminalHandlers.push(handler);
         return () => {};
       },
-      custom: (factory: (...args: any[]) => unknown, customOptions?: unknown) => {
-        custom.factory = factory;
-        custom.options = customOptions;
-        return customPromise;
+      custom: (factory: (...args: any[]) => unknown, customCallOptions?: unknown) => {
+        customFactories.push(factory);
+        customOptions = customCallOptions;
+        return new Promise((resolve) => customResolvers.push(resolve));
       },
     },
     sessionManager: {
@@ -174,5 +181,16 @@ export function makeCtx(options: CtxOptions = {}): CtxStub {
     model: options.model,
   };
 
-  return { ctx, notices, statuses, widgetKeys, terminalHandlers, tui, custom, resolveCustom };
+  return {
+    ctx,
+    notices,
+    statuses,
+    widgetKeys,
+    terminalHandlers,
+    tui,
+    custom,
+    resolveCustom: (value: any) => {
+      customResolvers.shift()?.(value); // FIFO：完成最早排队的那次 ui.custom
+    },
+  };
 }

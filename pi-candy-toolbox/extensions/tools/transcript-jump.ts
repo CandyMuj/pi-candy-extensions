@@ -15,7 +15,8 @@
  *
  * 已知限制（详见 docs/transcript-jump.md）：
  *   - 仅 fullscreen 可跳（alt-screen 才有 ScrollView 与布局树）；regular/headless 不可用
- *   - /compact 后旧消息不再渲染：选择被压缩的提问时降级滚动到会话顶部（摘要处）
+ *   - /compact 后旧消息不再渲染：选择被压缩的提问时打开只读查看器（原文 + 助手回复），
+ *     不滚动、不切换会话点；任何失败仅 notify 并停在当前
  *   - 依赖 tui.children 的结构与组件 render 测高（与 editor-history 同级内部 API 依赖），无回归保证
  */
 import { getSelectListTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -26,6 +27,7 @@ import {
   type KeyId,
   type SelectItem,
   SelectList,
+  ScrollView,
   Spacer,
   Text,
   fuzzyMatch,
@@ -353,6 +355,112 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
   return new Date(timestamp).toISOString().slice(0, 10);
 }
 
+// ── 压缩提问的只读查看器 ──────────────────────────────────────────
+
+/** 查看器正文小节 */
+export interface ViewerSection {
+  kind: "prompt" | "heading" | "reply" | "tools";
+  text: string;
+}
+
+/**
+ * 压缩提问的查看器内容：提问原文 + 随后（下一条用户消息之前）的助手回复；
+ * 工具调用以占位符略过（tool_use 块不展示内容，只标记「已略过」）。
+ * 找不到该提问时返回空数组。
+ */
+export function buildViewerSections(entries: EntryLike[], entryId: string): ViewerSection[] {
+  const start = entries.findIndex((e) => e.id === entryId);
+  if (start < 0) return [];
+  const first = entries[start];
+  if (!first) return [];
+  const sections: ViewerSection[] = [];
+  const promptText = entryText(first).trim();
+  if (promptText) sections.push({ kind: "prompt", text: promptText });
+  let headingAdded = false;
+  const ensureHeading = (): void => {
+    if (headingAdded) return;
+    sections.push({ kind: "heading", text: "── 助手回复 ──" });
+    headingAdded = true;
+  };
+  for (let i = start + 1; i < entries.length; i++) {
+    const e = entries[i];
+    if (!e) continue;
+    if (isUserMessage(e)) break; // 下一条用户消息起属于下一轮
+    if (e.type && e.type !== "message") continue;
+    if (e.message?.role !== "assistant") continue;
+    const text = entryText(e).trim();
+    const hasTools = Array.isArray(e.message?.content) && e.message.content.some((b) => b?.type === "tool_use");
+    if (hasTools) {
+      ensureHeading();
+      sections.push({ kind: "tools", text: "（工具调用，已略过）" }); // 按时间序：工具调用在文本回复之前
+    }
+    if (text) {
+      ensureHeading();
+      sections.push({ kind: "reply", text });
+    }
+  }
+  return sections;
+}
+
+/** 压缩提问的只读查看器：Esc/Enter 关闭返回列表；↑↓/翻页滚动；不触碰会话与转录 */
+class HistoryViewer extends Container implements Focusable {
+  private readonly scroll: ScrollView;
+  private readonly onClose: () => void;
+  private _focused = false;
+
+  get focused(): boolean {
+    return this._focused;
+  }
+  set focused(value: boolean) {
+    this._focused = value;
+  }
+
+  constructor(title: string, sections: ViewerSection[], theme: ThemeLike, onClose: () => void) {
+    super();
+    this.onClose = onClose;
+    this.addChild(new BorderLine((text) => theme.fg("border", text)));
+    this.addChild(new Spacer(1));
+    this.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
+    this.addChild(new Spacer(1));
+
+    const body = new Container();
+    for (const s of sections) {
+      body.addChild(new Text(s.kind === "prompt" || s.kind === "reply" ? s.text : theme.fg("dim", s.text), 1, 0));
+      body.addChild(new Spacer(1));
+    }
+    this.scroll = new ScrollView(body, { follow: "none", primary: true, overscroll: "contain", scrollbar: "auto" });
+    this.addChild(this.scroll);
+    this.addChild(new Spacer(1));
+    this.addChild(new Text(theme.fg("dim", "↑↓ 滚动 · PageUp/PageDown 翻页 · Esc/Enter 返回列表"), 1, 0));
+    this.addChild(new Spacer(1));
+    this.addChild(new BorderLine((text) => theme.fg("border", text)));
+  }
+
+  handleInput(data: string): void {
+    const kb = getKeybindings();
+    if (kb.matches(data, "tui.select.cancel") || kb.matches(data, "tui.select.confirm")) {
+      this.onClose();
+      return;
+    }
+    if (kb.matches(data, "tui.select.up") || kb.matches(data, "tui.editor.cursorUp")) {
+      this.scroll.scrollBy(-1);
+      return;
+    }
+    if (kb.matches(data, "tui.select.down") || kb.matches(data, "tui.editor.cursorDown")) {
+      this.scroll.scrollBy(1);
+      return;
+    }
+    if (kb.matches(data, "tui.altScreen.pageUp") || kb.matches(data, "tui.select.pageUp")) {
+      this.scroll.scrollBy(-Math.max(1, this.scroll.viewportHeight - 1));
+      return;
+    }
+    if (kb.matches(data, "tui.altScreen.pageDown") || kb.matches(data, "tui.select.pageDown")) {
+      this.scroll.scrollBy(Math.max(1, this.scroll.viewportHeight - 1));
+      return;
+    }
+  }
+}
+
 // ── 选择器组件 ─────────────────────────────────────────────────────
 
 /** 提问跳转选择器：输入过滤 + ←/→ 翻页 + ↑/↓ 选择（与 pi 会话选择器同款交互） */
@@ -499,7 +607,7 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
       const items: SelectItem[] = prompts.map((p) => ({
         value: p.entryId,
         label: `${String(p.index).padStart(3, " ")}. ${p.text}`,
-        description: `${formatRelativeTime(p.timestamp)}${renderedIds.has(p.entryId) ? "" : " ｜已压缩"}`,
+        description: `${formatRelativeTime(p.timestamp)}${renderedIds.has(p.entryId) ? "" : " ｜已压缩 · 可查看"}`,
       }));
 
       // 异步计算「当前视口附近的提问」（autoLocate 开启时预选列表项；定位失败静默回退最新项）
@@ -518,78 +626,96 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
       };
 
       let tuiRef: TuiLike | undefined;
+      // 查看器返回后重开选择器时保持位置（首次打开走 autoLocate）
+      let initialSelectionIndex = -1;
       // 不用 overlay：与 pi 原生 select 一致，替换编辑器区域全宽渲染（非弹窗）
-      const selected = await ctx.ui.custom<SelectItem>(
-        (tui, theme, _keybindings, done) => {
-          tuiRef = tui as TuiLike;
-          const dialog = new JumpDialog(`提问跳转（${items.length} 条）`, items, theme as ThemeLike, (item) => done(item), () => done(null));
-          if (config.autoLocate) {
-            // setTimeout 把重遍历推迟到选择器首帧渲染之后：打开不被组件测高阻塞（SelectList.invalidate 为空操作，应用后需 requestRender）
-            setTimeout(() => {
-              void locateInitialEntry().then((entryId) => {
-                if (!entryId) return;
-                const index = prompts.findIndex((p) => p.entryId === entryId);
-                if (dialog.setInitialIndex(index)) {
-                  tuiRef?.requestRender?.();
-                  log("自动定位默认选中", index, entryId);
-                }
-              });
-            }, 0);
+      while (true) {
+        const selected = await ctx.ui.custom<SelectItem>(
+          (tui, theme, _keybindings, done) => {
+            tuiRef = tui as TuiLike;
+            const dialog = new JumpDialog(`提问跳转（${items.length} 条）`, items, theme as ThemeLike, (item) => done(item), () => done(null));
+            if (config.autoLocate && initialSelectionIndex < 0) {
+              // setTimeout 把重遍历推迟到选择器首帧渲染之后：打开不被组件测高阻塞（SelectList.invalidate 为空操作，应用后需 requestRender）
+              setTimeout(() => {
+                void locateInitialEntry().then((entryId) => {
+                  if (!entryId) return;
+                  const index = prompts.findIndex((p) => p.entryId === entryId);
+                  if (dialog.setInitialIndex(index)) {
+                    tuiRef?.requestRender?.();
+                    log("自动定位默认选中", index, entryId);
+                  }
+                });
+              }, 0);
+            } else if (initialSelectionIndex >= 0) {
+              dialog.setInitialIndex(initialSelectionIndex);
+            }
+            return dialog;
+          },
+        );
+        if (!selected || !tuiRef) return;
+
+        const prompt = prompts.find((p) => p.entryId === selected.value);
+        if (!prompt) return;
+
+        if (tuiRef.mode !== "fullscreen") {
+          ctx.ui.notify("跳转仅支持 fullscreen 模式（/settings 可切换 TUI 模式）", "warning");
+          return;
+        }
+
+        // 已被压缩：打开只读查看器（原文 + 助手回复），不滚动、不切换会话点；关闭后返回选择器
+        if (!renderedIds.has(prompt.entryId)) {
+          const sections = buildViewerSections(entries, prompt.entryId);
+          if (sections.length === 0) {
+            ctx.ui.notify("该提问已被压缩，但未能读取原文", "info");
+            log("压缩提问：读取原文失败，停在当前", prompt.entryId);
+            return; // 停在当前，不做任何滚动
           }
-          return dialog;
-        },
-      );
-      if (!selected || !tuiRef) return;
+          initialSelectionIndex = prompts.findIndex((p) => p.entryId === prompt.entryId);
+          log("压缩提问：打开只读查看器", prompt.entryId);
+          await ctx.ui.custom<unknown>(
+            (tui, theme, _keybindings, done) => {
+              tuiRef = tui as TuiLike;
+              return new HistoryViewer(`历史提问 #${prompt.index}（已压缩 · 只读）`, sections, theme as ThemeLike, () => done(undefined));
+            },
+          );
+          continue; // 返回选择器（保持位置）
+        }
 
-      const prompt = prompts.find((p) => p.entryId === selected.value);
-      if (!prompt) return;
+        // 定位目标：skill 块开头 → skill 组件；否则 → 用户组件（两类序号各自与渲染组件一一对应）
+        const target = locateTarget(rendered, prompt.entryId);
+        if (!target) {
+          ctx.ui.notify("无法定位该提问", "warning");
+          return;
+        }
 
-      if (tuiRef.mode !== "fullscreen") {
-        ctx.ui.notify("跳转仅支持 fullscreen 模式（/settings 可切换 TUI 模式）", "warning");
-        return;
-      }
+        const { lines, contentWidth } = transcriptGeometry(tuiRef);
+        if (contentWidth === undefined) {
+          ctx.ui.notify("无法读取转录布局（仅 fullscreen 模式支持跳转）", "warning");
+          return;
+        }
+        const containers = findTranscriptContainers(tuiRef);
+        if (!containers) {
+          ctx.ui.notify("当前 TUI 布局不支持定位", "warning");
+          return;
+        }
 
-      // 已被压缩：旧消息不渲染 → 降级到会话顶部（摘要处）
-      if (!renderedIds.has(prompt.entryId)) {
-        scrollToRow(tuiRef, 0);
-        ctx.ui.notify("该提问已被压缩为摘要，已定位到会话顶部", "info");
-        log("降级：提问已被压缩，滚到顶部", prompt.entryId);
+        const row = locatePromptRow(containers.doc, containers.chat, contentWidth, target);
+        if (row === undefined) {
+          ctx.ui.notify("无法定位该提问（组件渲染失败或布局异常）", "warning");
+          return;
+        }
+        // 行号越界自检（与布局行数对不上说明宽度/结构漂移）
+        if (lines && (row < 0 || row >= lines.length)) {
+          ctx.ui.notify("定位结果越界，无法跳转（可能 pi 版本不兼容）", "warning");
+          return;
+        }
+        if (!scrollToRow(tuiRef, row)) {
+          ctx.ui.notify("滚动失败（当前 TUI 不支持）", "warning");
+          return;
+        }
+        log("跳转", prompt.entryId, "row", row, "宽度", contentWidth);
         return;
       }
-
-      // 定位目标：skill 块开头 → skill 组件；否则 → 用户组件（两类序号各自与渲染组件一一对应）
-      const target = locateTarget(rendered, prompt.entryId);
-      if (!target) {
-        ctx.ui.notify("无法定位该提问", "warning");
-        return;
-      }
-
-      const { lines, contentWidth } = transcriptGeometry(tuiRef);
-      if (contentWidth === undefined) {
-        ctx.ui.notify("无法读取转录布局（仅 fullscreen 模式支持跳转）", "warning");
-        return;
-      }
-      const containers = findTranscriptContainers(tuiRef);
-      if (!containers) {
-        ctx.ui.notify("当前 TUI 布局不支持定位", "warning");
-        return;
-      }
-
-      const row = locatePromptRow(containers.doc, containers.chat, contentWidth, target);
-      if (row === undefined) {
-        ctx.ui.notify("无法定位该提问（组件渲染失败或布局异常）", "warning");
-        return;
-      }
-      // 行号越界自检（与布局行数对不上说明宽度/结构漂移）
-      if (lines && (row < 0 || row >= lines.length)) {
-        ctx.ui.notify("定位结果越界，无法跳转（可能 pi 版本不兼容）", "warning");
-        return;
-      }
-      if (!scrollToRow(tuiRef, row)) {
-        ctx.ui.notify("滚动失败（当前 TUI 不支持）", "warning");
-        return;
-      }
-      log("跳转", prompt.entryId, "row", row, "宽度", contentWidth);
     };
 
     pi.registerCommand("candy-jump", {

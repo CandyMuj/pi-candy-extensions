@@ -11,6 +11,7 @@ initTheme("dark"); // SelectList/getSelectListTheme 渲染需要已初始化的�
 const {
   default: transcriptJump,
   JumpDialog,
+  buildViewerSections,
   findTranscriptContainers,
   formatRelativeTime,
   isSkillComponent,
@@ -35,7 +36,7 @@ const a2tool = {
   type: "message",
   id: "a2",
   timestamp: NOW - 2 * 60_000,
-  message: { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "bash" }, { type: "text", text: "带工具的回复" }] },
+  message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "bash" }, { type: "text", text: "带工具的回复" }] },
 };
 const u3 = { type: "message", id: "u3", timestamp: NOW - 60_000, message: { role: "user", content: [{ type: "text", text: "第三个问题" }] } };
 const ENTRIES = [u1, a1, u2, a2tool, u3];
@@ -328,6 +329,37 @@ test("JumpDialog pages with ←/→ and filters with typed text", () => {
   assert.equal(closed.length, 1);
 });
 
+/* ── 压缩提问的只读查看器内容 ──────────────────────────────────── */
+
+test("buildViewerSections includes the prompt and replies until the next user message", () => {
+  const sections = buildViewerSections(ENTRIES, "u1");
+  assert.deepEqual(sections, [
+    { kind: "prompt", text: "第一个问题" },
+    { kind: "heading", text: "── 助手回复 ──" },
+    { kind: "reply", text: "回答一" },
+  ]);
+});
+
+test("buildViewerSections skips tool calls with a placeholder before the reply", () => {
+  const sections = buildViewerSections(ENTRIES, "u2");
+  assert.deepEqual(sections, [
+    { kind: "prompt", text: "第二个问题" },
+    { kind: "heading", text: "── 助手回复 ──" },
+    { kind: "tools", text: "（工具调用，已略过）" },
+    { kind: "reply", text: "带工具的回复" },
+  ]);
+});
+
+test("buildViewerSections tolerates missing entries and non-message types", () => {
+  assert.deepEqual(buildViewerSections(ENTRIES, "不存在"), []);
+  const withCustom = [u1, { type: "compaction", id: "c1" }, a1, u2];
+  assert.deepEqual(buildViewerSections(withCustom, "u1"), [
+    { kind: "prompt", text: "第一个问题" },
+    { kind: "heading", text: "── 助手回复 ──" },
+    { kind: "reply", text: "回答一" },
+  ]);
+});
+
 /* ── 命令 / 快捷键集成 ──────────────────────────────────────────── */
 
 test("openPicker notifies when the session has no prompts", async () => {
@@ -362,12 +394,39 @@ test("cancelling the picker does nothing", async () => {
   assert.deepEqual(ui.notices, []);
 });
 
-test("compacted prompts fall back to the top (summary)", async () => {
+test("selecting a compacted prompt opens a read-only viewer and never scrolls", async () => {
   const ui = makeCtx({ entries: ENTRIES, contextEntries: [u3], mode: "tui" });
   const { tui, scrollCalls } = makeTui();
-  await runPicker(ui, tui, "u1");
-  assert.deepEqual(scrollCalls, [0]);
-  assert.deepEqual(ui.notices, [{ message: "该提问已被压缩为摘要，已定位到会话顶部", type: "info" }]);
+  const { command } = registerTool();
+  const run = command?.handler("", ui.ctx);
+  await Promise.resolve();
+
+  // 第一轮：选择器
+  const pickerFactory = ui.custom.factory;
+  assert.ok(pickerFactory);
+  const picker = pickerFactory(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
+  assert.equal(typeof (picker as any)?.render, "function");
+  ui.resolveCustom({ value: "u1" }); // 选中被压缩的 u1
+  await Promise.resolve();
+
+  // 第二轮：只读查看器（含原文与随后的助手回复）
+  const viewerFactory = ui.custom.factory;
+  const viewer = viewerFactory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
+  assert.equal(typeof (viewer as any)?.handleInput, "function");
+  const renderedViewer = (viewer as any)?.render?.(120)?.join("\n") ?? "";
+  assert.match(renderedViewer, /历史提问 #1（已压缩 · 只读）/);
+  assert.match(renderedViewer, /第一个问题/);
+  assert.match(renderedViewer, /回答一/);
+  assert.deepEqual(scrollCalls, [], "查看期间不得滚动");
+
+  ui.resolveCustom(undefined); // 关闭查看器 → 重开选择器
+  await Promise.resolve();
+  assert.ok(ui.custom.factory, "查看器关闭后应重开选择器");
+  ui.resolveCustom(null); // 取消选择器
+  await run;
+
+  assert.deepEqual(scrollCalls, [], "全程不得滚动（不降级顶部、不跳转）");
+  assert.deepEqual(ui.notices, []);
 });
 
 test("regular (inline) TUI cannot jump", async () => {
@@ -437,8 +496,8 @@ test("off-branch prompts are excluded from the picker", async () => {
   assert.deepEqual(ui.notices, []);
 });
 
-test("branch prompts outside the rendered context are marked compacted", async () => {
-  // u1 在当前分支但不在渲染集合（被压缩）→ 列表里标记「已压缩」，选中降级顶部
+test("branch prompts outside the rendered context are marked compacted and viewable", async () => {
+  // u1 在当前分支但不在渲染集合（被压缩）→ 列表里标记「已压缩 · 可查看」，选中打开只读查看器
   const ui = makeCtx({ entries: ENTRIES, branchEntries: ENTRIES, contextEntries: [u2, a2tool, u3], mode: "tui" });
   const { command } = registerTool();
   const run = command?.handler("", ui.ctx);
@@ -446,10 +505,16 @@ test("branch prompts outside the rendered context are marked compacted", async (
   const { tui } = makeTui();
   const component = ui.custom.factory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
   const rendered = (component as any)?.render?.(120)?.join("\n") ?? "";
-  assert.match(rendered, /第一个问题[\s\S]*已压缩/);
+  assert.match(rendered, /第一个问题[\s\S]*已压缩 · 可查看/);
   ui.resolveCustom({ value: "u1" });
+  await Promise.resolve();
+  assert.ok(ui.custom.factory, "选中压缩项应打开只读查看器");
+  ui.resolveCustom(undefined); // 关闭查看器
+  await Promise.resolve();
+  assert.ok(ui.custom.factory, "关闭查看器后应重开选择器");
+  ui.resolveCustom(null); // 取消
   await run;
-  assert.match(ui.notices[0]?.message ?? "", /已被压缩为摘要/);
+  assert.deepEqual(ui.notices, []);
 });
 
 test("shortcut is registered (configurable) and shares the picker", async () => {
