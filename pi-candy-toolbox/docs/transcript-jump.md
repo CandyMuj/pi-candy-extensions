@@ -35,7 +35,8 @@
   "transcript-jump": {
     "debug": false,
     "shortcut": "alt+j",
-    "autoLocate": true
+    "autoLocate": true,
+    "diffViewMode": "auto"
   }
 }
 ```
@@ -45,6 +46,7 @@
 | `debug` | `false` | 调试日志开关：与插件级 `$toolbox.debug` 为「或」关系，任一为 `true` 即写 `<logDir>/transcript-jump.log`（跳转/降级/失败原因）；两者都为 `false` 时连日志目录都不会创建 |
 | `shortcut` | `"alt+j"` | 打开提问列表的快捷键（KeyId 格式，见 pi keybindings 文档；避开 Ctrl+Shift+字母与终端保留组合，冲突时改这里） |
 | `autoLocate` | `true` | 打开选择器时**异步**预选当前视口附近的提问（不阻塞打开）；关闭则始终默认选中最新，且不做任何组件遍历 |
+| `diffViewMode` | `"auto"` | 查看器内 edit/write 的 diff 渲染方式：`auto`（内容宽度 ≥ 120 列用双栏，否则单栏；阈值与 pi-tool-display 的 `diffSplitMinWidth` 默认一致）/ `split`（双栏：删减在左、新增在右，按 hunk 配对对齐，长行按栏宽换行，行级着色）/ `unified`（单栏，官方 `renderDiff` 着色） |
 
 ## 方案逻辑
 
@@ -67,7 +69,7 @@
 
 选中「已压缩 · 可查看」的提问时，打开**居中 overlay**（约 90% 宽、85% 高）只读查看器（标题：`历史提问 #N（已压缩 · 只读）`）：
 
-- **渲染与折叠继承 pi 原生**：提问原文用 `UserMessageComponent`、助手消息用 `AssistantMessageComponent`、工具调用用 `ToolExecutionComponent`（均为官方导出）——markdown、主题与转录中的消息**完全一致**，美化主题插件自动同步；**thinking 默认折叠态随宿主 `hideThinkingBlock` 设置、工具调用默认折叠态随 `toolOutputExpanded` 设置**（与转录一致，读不到设置时用 pi 默认值）；**点击折叠/展开为组件内置能力，已在查看器接通**（点击对应行切换；转录级快捷键如 Ctrl+O 不在查看器中接管）；`edit` / `write` 的 diff 预览用官方导出的 `renderDiff` 复刻 pi 自身的编辑展示（官方内置 renderer 未随包导出）
+- **渲染与折叠继承 pi 原生**：提问原文用 `UserMessageComponent`、助手消息用 `AssistantMessageComponent`、工具调用用 `ToolExecutionComponent`（均为官方导出）——markdown、主题与转录中的消息**完全一致**，美化主题插件自动同步；**thinking 默认折叠态随宿主 `hideThinkingBlock` 设置、工具调用默认折叠态随 `toolOutputExpanded` 设置**（与转录一致，读不到设置时用 pi 默认值）；**点击折叠/展开为组件内置能力，已在查看器接通**（点击对应行切换；转录级快捷键如 Ctrl+O 不在查看器中接管）；`edit` / `write` 的 diff 预览按 `diffViewMode` 配置渲染（`split` 双栏为自研排版，长行按栏宽换行、行级着色；`unified` 用官方 `renderDiff`）
 - **键位与滚轮**：`↑`/`↓` 滚动、`PageUp`/`PageDown` 翻页、滚轮直达查看器（overlay 优先路由，不会带动转录）、`Esc`/`Enter` 返回列表（保持之前的选择位置）；提示行固定在正文上方，内容超高不被裁剪
 - **自绘卡片与窗口滚动**：overlay 合成不带背景，查看器自绘 `customMessageBg` 底色（pi 自定义消息框同款，缺该 token 的主题降级为无底色）+ 完整盒边框，与转录背景清晰区隔；滚动为窗口切片（overlay 子组件无布局测量，ScrollView 不可用），滚轮由 `handleMouse` 消费
 - 全程**不滚动转录、不切换会话活动点**——数据来自 `sessionManager.getEntries()` 的原始条目，被压缩的原文仍在会话文件里，只读展示即可

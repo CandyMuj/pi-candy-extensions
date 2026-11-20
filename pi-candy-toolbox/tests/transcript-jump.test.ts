@@ -22,9 +22,11 @@ const {
   listPrompts,
   locatePromptRow,
   locateTarget,
+  parseSplitRows,
   promptIdAtRow,
   readPiTuiSettings,
   renderHeight,
+  renderSplitDiff,
   scrollToRow,
   startsWithSkillBlock,
   transcriptGeometry,
@@ -95,10 +97,10 @@ function makeTui(options: { mode?: string; contentLines?: string[]; widths?: boo
   return { tui, scrollCalls, renders, chat, doc };
 }
 
-function registerTool(config: { shortcut?: string; autoLocate?: boolean } = {}) {
+function registerTool(config: { shortcut?: string; autoLocate?: boolean; diffViewMode?: "auto" | "split" | "unified" } = {}) {
   const stub = makePiStub();
   const log = makeLogger();
-  transcriptJump.register(stub.pi, { shortcut: "alt+j", debug: false, autoLocate: true, ...config }, log.log);
+  transcriptJump.register(stub.pi, { shortcut: "alt+j", debug: false, autoLocate: true, diffViewMode: "auto", ...config }, log.log);
   return { stub, log, command: stub.commands.get("candy-jump") };
 }
 
@@ -452,6 +454,88 @@ test("clicking a thinking block toggles its expansion (inherited from pi compone
   } as any);
   assert.equal(result?.handled, true);
   assert.ok(viewer.render(120).join("\n").includes("内部思考内容"), "点击后展开显示思考正文");
+});
+
+test("renderSplitDiff pairs removed and added lines side by side", () => {
+  const rows = renderSplitDiff("@@ -1 +1 @@\n-old line\n+new line\n context\n-only", 41, themeStub);
+  assert.ok((rows[0] ?? "").includes("@@"), "头部整行");
+  const pair = rows[1] ?? "";
+  assert.ok(pair.includes("-old line") && pair.includes("+new line") && pair.includes("│"), "同一行双栏配对");
+  const context = rows[2] ?? "";
+  assert.ok(context.includes(" context") && context.split("│").length === 2, "context 行双栏");
+  const orphan = rows[3] ?? "";
+  assert.ok(orphan.includes("-only") && !orphan.includes("+"), "无配对的删减行右侧留空");
+  assert.deepEqual(parseSplitRows("-a\n+b").map((r) => [r.left, r.right]), [["-a", "+b"]]);
+});
+
+test("split panes wrap long lines instead of truncating", () => {
+  // 宽 21 → 左栏 10 列、右栏 10 列；"-" + 19 个 x = 20 可见宽 → 左栏换行成 2 行
+  const rows = renderSplitDiff(`-${"x".repeat(19)}\n+short`, 21, themeStub);
+  const leftRows = rows.filter((r) => r.includes("xxx"));
+  assert.equal(leftRows.length, 2, "左栏长行换行成两行");
+  assert.ok(!rows.join("\n").includes("…"), "无省略号");
+  assert.ok((rows[0] ?? "").includes("short"), "右栏短行仍在第一行配对");
+});
+
+test("viewer renders split diffs when configured, unified on narrow auto", () => {
+  const sections: any[] = [
+    {
+      kind: "tool",
+      tool: {
+        name: "edit",
+        id: "t1",
+        args: { path: "a.txt" },
+        result: { content: [{ type: "text", text: "done" }], details: { diff: "-old\n+new" }, isError: false },
+      },
+    },
+  ];
+  const splitViewer = new HistoryViewer(
+    "测试",
+    sections,
+    themeStub,
+    { tui: { terminal: { rows: 24 }, requestRender: () => {} }, cwd: "/tmp", diffViewMode: "split" },
+    () => {},
+  );
+  const splitRow = splitViewer.render(60).find((l) => l.includes("-old"));
+  assert.ok(splitRow?.includes("+") && splitRow.includes("new"), "split：同一行双栏");
+
+  const autoNarrow = new HistoryViewer(
+    "测试",
+    sections,
+    themeStub,
+    { tui: { terminal: { rows: 24 }, requestRender: () => {} }, cwd: "/tmp", diffViewMode: "auto" },
+    () => {},
+  );
+  const narrowLines = autoNarrow.render(60); // 内宽 < 120 → 单栏
+  const minusLine = narrowLines.find((l) => l.includes("-old"));
+  const plusLine = narrowLines.find((l) => l.includes("new"));
+  assert.ok(minusLine && plusLine && minusLine !== plusLine, "auto 窄宽退化为单栏（两行分开）");
+});
+
+test("long diff lines wrap instead of truncating", () => {
+  const longLine = "x".repeat(200);
+  const sections: any[] = [
+    {
+      kind: "tool",
+      tool: {
+        name: "edit",
+        id: "t1",
+        args: { path: "a.txt" },
+        result: { content: [{ type: "text", text: "done" }], details: { diff: `-${longLine}\n+short` }, isError: false },
+      },
+    },
+  ];
+  const viewer = new HistoryViewer(
+    "测试",
+    sections,
+    themeStub,
+    { tui: { terminal: { rows: 24 }, requestRender: () => {} }, cwd: "/tmp", diffViewMode: "unified" },
+    () => {},
+  );
+  const rendered = viewer.render(60);
+  const longRows = rendered.filter((l) => l.includes("xxx"));
+  assert.ok(longRows.length >= 2, "长行按宽度换行成多行");
+  assert.ok(!rendered.join("\n").includes("…"), "不加省略号");
 });
 
 /* ── 命令 / 快捷键集成 ──────────────────────────────────────────── */

@@ -44,6 +44,7 @@ import {
   Text,
   fuzzyMatch,
   getKeybindings,
+  sliceByColumn,
   truncateToWidth,
   type TuiMouseEvent,
   visibleWidth,
@@ -59,6 +60,8 @@ export interface TranscriptJumpConfig {
   shortcut: string;
   /** 打开选择器时异步预选当前视口附近的提问（不阻塞打开）；关闭则始终默认选中最新，且不做任何组件遍历 */
   autoLocate: boolean;
+  /** edit/write 的 diff 渲染方式：auto（宽则双栏窄则单栏）/ split（双栏）/ unified（单栏） */
+  diffViewMode: "auto" | "split" | "unified";
 }
 
 /** 预览单行显示宽度上限（防超长消息占内存；正常提问远小于此，视觉截断交给 SelectList 按终端宽度做） */
@@ -154,8 +157,134 @@ export interface PromptItem {
   timestamp: number;
 }
 
-/** 归一化时间戳：ISO 字符串 → epoch ms */
-function toTimestamp(value: string | number | undefined): number {
+export type DiffViewMode = "auto" | "split" | "unified";
+
+/** auto 模式的宽度阈值：与 pi-tool-display 的 diffSplitMinWidth 默认值一致 */
+export const SPLIT_MIN_WIDTH = 120;
+
+/**
+ * 样式安全复位：只复位前景/加粗/反色，不动背景。
+ * 对含 ANSI 的行做截断/换行切段后，切点可能落在复位序列之前，残留反色/前景会污染行尾补齐空格
+ * （反色残留 = 黑底白字）；在段尾追加它可杀掉泄漏样式且不破坏工具框背景（不能用 \x1b[0m，会连背景一起复位）。
+ */
+const ANSI_SAFE_RESET = "\x1b[39m\x1b[22m\x1b[27m";
+
+/** 把字符串里的全量复位替换为背景安全的复位（truncateToWidth 的省略号自带 \x1b[0m，会连背景一起复位成黑底） */
+function stripFullResets(text: string): string {
+  return text.replace(/\x1b\[0m/g, ANSI_SAFE_RESET);
+}
+
+interface SplitRow {
+  left: string;
+  right: string;
+  /** 整行（diff 头/位置头/空行） */
+  full?: boolean;
+}
+
+/** 把 unified diff 文本解析为双栏行：- 归左、+ 归右、context 双栏、头部整行 */
+export function parseSplitRows(diffText: string): SplitRow[] {
+  const rows: SplitRow[] = [];
+  const pendingLeft: string[] = [];
+  const flush = (): void => {
+    while (pendingLeft.length > 0) rows.push({ left: pendingLeft.shift() ?? "", right: "" });
+  };
+  const full = (line: string): void => {
+    rows.push({ left: line, right: "", full: true });
+  };
+  for (const raw of diffText.split("\n")) {
+    const ch = raw[0];
+    if (
+      raw === "" ||
+      raw.startsWith("diff ") ||
+      raw.startsWith("index ") ||
+      raw.startsWith("---") ||
+      raw.startsWith("+++") ||
+      raw.startsWith("@@") ||
+      raw.startsWith("\\")
+    ) {
+      flush();
+      full(raw);
+      continue;
+    }
+    if (ch === "-") {
+      pendingLeft.push(raw);
+    } else if (ch === "+") {
+      rows.push({ left: pendingLeft.shift() ?? "", right: raw });
+    } else if (ch === " ") {
+      flush();
+      rows.push({ left: raw, right: raw });
+    } else {
+      flush();
+      full(raw);
+    }
+  }
+  flush();
+  return rows;
+}
+
+/** 按显示宽度换行（ANSI 感知、无省略号；每段尾部追加背景安全的样式复位） */
+function wrapToWidth(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let remaining = text;
+  while (visibleWidth(remaining) > width) {
+    lines.push(stripFullResets(sliceByColumn(remaining, 0, width)) + ANSI_SAFE_RESET);
+    remaining = sliceByColumn(remaining, width, visibleWidth(remaining) - width);
+  }
+  lines.push(stripFullResets(remaining) + ANSI_SAFE_RESET);
+  return lines;
+}
+
+/** 双栏 diff 渲染：左栏删减/上下文，右栏新增/上下文，按 hunk 配对对齐；长行换行（无省略号）；行级着色 */
+export function renderSplitDiff(diffText: string, width: number, theme: { fg: (name: string, text: string) => string }): string[] {
+  const w = Math.max(4, width);
+  const leftW = Math.max(1, Math.floor((w - 1) / 2));
+  const rightW = Math.max(1, w - 1 - leftW);
+  const sep = theme.fg("dim", "│");
+  const pad = (text: string, target: number): string => text + " ".repeat(Math.max(0, target - visibleWidth(text)));
+  const color = (line: string): string => {
+    if (!line) return "";
+    const ch = line[0];
+    if (ch === "-") return theme.fg("toolDiffRemoved", line);
+    if (ch === "+") return theme.fg("toolDiffAdded", line);
+    return theme.fg("dim", line);
+  };
+  return parseSplitRows(diffText).flatMap((row) => {
+    if (row.full) return wrapToWidth(theme.fg("dim", row.left), w).map((line) => pad(line, w));
+    const left = wrapToWidth(color(row.left), leftW);
+    const right = wrapToWidth(color(row.right), rightW);
+    const rows: string[] = [];
+    const n = Math.max(left.length, right.length);
+    for (let i = 0; i < n; i++) {
+      rows.push(pad(left[i] ?? "", leftW) + sep + pad(right[i] ?? "", rightW));
+    }
+    return rows;
+  });
+}
+
+/** edit/write 的 diff 视图组件：按宽度决定 split/unified（auto 模式） */
+class DiffViewComponent {
+  private readonly diffText: string;
+  private readonly mode: DiffViewMode;
+  private readonly theme: { fg: (name: string, text: string) => string };
+
+  constructor(diffText: string, mode: DiffViewMode, theme: { fg: (name: string, text: string) => string }) {
+    this.diffText = diffText;
+    this.mode = mode;
+    this.theme = theme;
+  }
+
+  invalidate(): void {
+    // 无缓存状态
+  }
+
+  render(width: number): string[] {
+    const actual = this.mode === "auto" ? (width >= SPLIT_MIN_WIDTH ? "split" : "unified") : this.mode;
+    if (actual === "split") return renderSplitDiff(this.diffText, width, this.theme);
+    return renderDiff(this.diffText).split("\n");
+  }
+}
+
+/** 归一化时间戳：ISO 字符串 → epoch ms */function toTimestamp(value: string | number | undefined): number {
   if (typeof value === "number") return value;
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -456,18 +585,17 @@ export function readPiTuiSettings(agentDir: string = getAgentDir()): { hideThink
  * 这里仅用官方导出的 renderDiff 复刻 pi 自身的编辑类展示（edit/write 的 diff 预览），
  * 其余内置/自定义工具走 ToolExecutionComponent 通用兜底。
  */
-function builtinLikeRenderers(): Record<string, ToolRenderers> {
+function builtinLikeRenderers(mode: DiffViewMode): Record<string, ToolRenderers> {
   const editorLike = (label: string): ToolRenderers =>
     ({
       renderCall: (args: any, theme: any) => {
         const path = String(args?.file_path ?? args?.path ?? "");
         return new Text(`${theme.fg("toolTitle", theme.bold(label))} ${path}`, 0, 0);
       },
-      renderResult: (result: any, _options: any, _theme: any, context: any) => {
+      renderResult: (result: any, _options: any, theme: any, _context: any) => {
         const diff = result?.details?.diff;
         if (typeof diff !== "string" || !diff) return new Container();
-        const path = String(context?.args?.file_path ?? context?.args?.path ?? "");
-        return new Text(renderDiff(diff, { filePath: path || undefined }), 0, 0);
+        return new DiffViewComponent(diff, mode, theme) as unknown as Component;
       },
     }) as ToolRenderers;
   return { edit: editorLike("edit"), write: editorLike("write") };
@@ -484,6 +612,7 @@ export interface ViewerEnv {
   cwd?: string;
   hideThinkingBlock?: boolean;
   toolOutputExpanded?: boolean;
+  diffViewMode?: DiffViewMode;
 }
 
 /**
@@ -541,7 +670,7 @@ export class HistoryViewer extends Container implements Focusable {
     this.lastInnerWidth = innerWidth;
     const lines: string[] = [];
     this.sectionRows = [];
-    const builtins = builtinLikeRenderers();
+    const builtins = builtinLikeRenderers(this.env.diffViewMode ?? "auto");
     for (let i = 0; i < this.sections.length; i++) {
       const s = this.sections[i];
       if (!s) continue;
@@ -582,8 +711,17 @@ export class HistoryViewer extends Container implements Focusable {
       }
       if (component) {
         const sectionLines = component.render(innerWidth);
-        lines.push(...sectionLines);
-        this.sectionRows.push({ component, start: lineStart, end: lineStart + sectionLines.length });
+        for (const line of sectionLines) {
+          // 超长行按显示宽度换行（sliceByColumn ANSI 感知）；每段尾部追加样式安全复位，
+          // 防止切点落在复位序列前导致反色/前景泄漏到行尾补齐空格（反色残留 = 黑底）
+          let remaining = line;
+          while (visibleWidth(remaining) > innerWidth) {
+            lines.push(stripFullResets(sliceByColumn(remaining, 0, innerWidth)) + ANSI_SAFE_RESET);
+            remaining = sliceByColumn(remaining, innerWidth, visibleWidth(remaining) - innerWidth);
+          }
+          lines.push(stripFullResets(remaining) + ANSI_SAFE_RESET);
+        }
+        this.sectionRows.push({ component, start: lineStart, end: lines.length });
       }
     }
     this.contentLines = lines;
@@ -621,14 +759,16 @@ export class HistoryViewer extends Container implements Focusable {
     const bg = (text: string): string => style((t) => (this.theme.bg ? this.theme.bg("customMessageBg", t) : t), text);
     const pad = (line: string): string => {
       const vw = visibleWidth(line);
-      return vw > inner ? truncateToWidth(line, inner, "…") : line + " ".repeat(inner - vw);
+      // 内容行已在 buildContentLines 换行到 ≤ inner；此处仅兜底（异常行不中途截断，交给合成层裁剪）
+      if (vw > inner) return stripFullResets(sliceByColumn(line, 0, inner)) + ANSI_SAFE_RESET;
+      return line + " ".repeat(inner - vw);
     };
 
     const out: string[] = [];
     out.push(border(`┌${"─".repeat(inner)}┐`));
-    out.push(border("│") + bg(pad(style((_t) => this.theme.fg("customMessageLabel", this.theme.bold(this.title)), this.title))) + border("│"));
+    out.push(border("│") + bg(pad(" " + style((_t) => this.theme.fg("customMessageLabel", this.theme.bold(this.title)), this.title))) + border("│"));
     out.push(border("│") + bg(pad("")) + border("│"));
-    out.push(border("│") + bg(pad(style((_t) => this.theme.fg("dim", this.hint), this.hint))) + border("│"));
+    out.push(border("│") + bg(pad(" " + style((_t) => this.theme.fg("dim", this.hint), this.hint))) + border("│"));
     out.push(border("│") + bg(pad("")) + border("│"));
     const window = all.slice(this.offset, this.offset + rows);
     for (const line of window) out.push(border("│") + bg(pad(line)) + border("│"));
@@ -817,7 +957,7 @@ export class JumpDialog extends Container implements Focusable {
 const tool: ToolDefinition<TranscriptJumpConfig> = {
   id: "transcript-jump",
   description: "打开提问列表并跳转到对应位置（仅全屏）：/candy-jump",
-  defaultConfig: { debug: false, shortcut: "alt+j", autoLocate: true },
+  defaultConfig: { debug: false, shortcut: "alt+j", autoLocate: true, diffViewMode: "auto" },
   register(pi: ExtensionAPI, config: TranscriptJumpConfig, log: Logger): void {
     const openPicker = async (ctx: PickerCtx): Promise<void> => {
       if (ctx.mode !== "tui") return;
@@ -916,6 +1056,7 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
                   tui: tui as { terminal?: { rows?: number }; requestRender?: () => void },
                   cwd: ctx.cwd ?? "",
                   ...readPiTuiSettings(),
+                  diffViewMode: config.diffViewMode,
                 },
                 () => done(undefined),
               );
