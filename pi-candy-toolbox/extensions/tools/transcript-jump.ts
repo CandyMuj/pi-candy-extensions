@@ -45,10 +45,13 @@ import {
   fuzzyMatch,
   getKeybindings,
   sliceByColumn,
+  stripTerminalSequences,
   truncateToWidth,
   type TuiMouseEvent,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+
+export { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { ToolDefinition } from "../core/config.ts";
 import type { Logger } from "../core/log.ts";
 import { entryText, isUserMessage, type EntryLike } from "../core/entries.ts";
@@ -100,10 +103,11 @@ interface PickerCtx {
   ui: {
     notify(message: string, type?: "info" | "warning" | "error"): void;
     custom<T>(factory: (...args: any[]) => unknown, options?: unknown): Promise<T | undefined>;
+    onTerminalInput?(handler: (data: string) => unknown): () => void;
   };
 }
 
-type ThemeLike = { fg: (name: string, text: string) => string; bold: (text: string) => string; bg?: (name: string, text: string) => string };
+type ThemeLike = { fg: (name: string, text: string) => string; bold: (text: string) => string; bg?: (name: string, text: string) => string; getBgAnsi?: (name: string) => string };
 
 /** 横向分隔线（宽度自适应；颜色显式传入——jiti 模块缓存下全局主题可能失效） */
 class BorderLine {
@@ -172,6 +176,49 @@ const ANSI_SAFE_RESET = "\x1b[39m\x1b[22m\x1b[27m";
 /** 把字符串里的全量复位替换为背景安全的复位（truncateToWidth 的省略号自带 \x1b[0m，会连背景一起复位成黑底） */
 function stripFullResets(text: string): string {
   return text.replace(/\x1b\[0m/g, ANSI_SAFE_RESET);
+}
+
+/** 行内查询的所有命中起始列（显示宽度，从左到右） */
+export function findOccurrences(line: string, query: string): number[] {
+  const q = query.trim();
+  if (!q) return [];
+  const plain = stripTerminalSequences(line);
+  const lower = plain.toLowerCase();
+  const lowerQ = q.toLowerCase();
+  const cols: number[] = [];
+  let idx = lower.indexOf(lowerQ);
+  while (idx >= 0) {
+    cols.push(visibleWidth(plain.slice(0, idx)));
+    idx = lower.indexOf(lowerQ, idx + lowerQ.length);
+  }
+  return cols;
+}
+
+/** 命中样式：全部命中轻高亮（主题背景块），当前命中在其上反色强调；缺主题底色时降级为纯反色 */
+export type MatchStyle = { all: (match: string) => string; current: (match: string) => string };
+
+/** 命中片段只保留前景色：去掉背景与复位码，否则切片内自带的 bg/复位会覆盖或取消包裹的高亮样式 */
+function stripBgResets(text: string): string {
+  return text.replace(/\x1b\[(?:4\d|49|39|22|27|0)(?:;[0-9;]+)?m/g, "");
+}
+
+/** 高亮行内所有命中（ANSI 感知、按显示列切片，不破坏原有着色）；currentOccurrence 指定当前命中（0 起） */
+export function highlightAllMatches(line: string, query: string, opts: { currentOccurrence?: number; styles?: MatchStyle } = {}): string {
+  const cols = findOccurrences(line, query);
+  if (cols.length === 0) return line;
+  const matchWidth = visibleWidth(query.trim());
+  const all = opts.styles?.all ?? ((m: string) => `\x1b[7m${m}\x1b[27m`);
+  const current = opts.styles?.current ?? ((m: string) => `\x1b[7m\x1b[1m${m}\x1b[22m\x1b[27m`);
+  let out = "";
+  let start = 0;
+  cols.forEach((col, i) => {
+    out += sliceByColumn(line, start, col - start);
+    const matchSlice = stripBgResets(sliceByColumn(line, col, matchWidth));
+    out += (opts.currentOccurrence === i ? current : all)(matchSlice);
+    start = col + matchWidth;
+  });
+  out += sliceByColumn(line, start, Math.max(0, visibleWidth(line) - start));
+  return out;
 }
 
 interface SplitRow {
@@ -601,10 +648,39 @@ function builtinLikeRenderers(mode: DiffViewMode): Record<string, ToolRenderers>
   return { edit: editorLike("edit"), write: editorLike("write") };
 }
 
-/** 查看器固定开销行数：顶边框 + 空行 + 标题 + 空行 + 提示行 + 空行 */
-const VIEWER_FIXED_ROWS = 6;
+/** 查看器固定开销行数：顶边框 + 标题 + 提示 + 空行 + 底边框 */
+const VIEWER_FIXED_ROWS = 5;
 /** 内容区最小行数 */
 const VIEWER_MIN_CONTENT_ROWS = 5;
+
+/** 打开中的查看器实例与终端监听器（跨命令调用共享：查看器打开时拦截 pi 搜索热键改搜查看器内容） */
+let activeViewer: HistoryViewer | undefined;
+let searchListenerRegistered = false;
+
+/** 把监听器前置到 viewport 之前（viewport 对 search 热键总是 consume，后置永远收不到） */
+function ensureListenerFirst(tui: unknown, handler: (data: string) => unknown): void {
+  const t = tui as { inputListeners?: Set<(d: string) => unknown> };
+  const set = t?.inputListeners;
+  if (!set || typeof set.values !== "function") return;
+  if (set.size === 0 || set.values().next().value === handler) return;
+  t.inputListeners = new Set([handler, ...[...set].filter((l) => l !== handler)]);
+}
+
+/** 查看器打开期间拦截 pi 搜索热键（tui.altScreen.search）→ 查看器内搜索并消费 */
+function viewerSearchInput(data: string): { consume: true } | undefined {
+  if (activeViewer && getKeybindings().matches(data, "tui.altScreen.search")) {
+    activeViewer.openSearch();
+    return { consume: true };
+  }
+  return undefined;
+}
+
+/** 注册一次全局终端监听器（惰性：首次打开查看器时） */
+function registerSearchListener(ctx: PickerCtx, handler: (data: string) => { consume: true } | undefined): void {
+  if (searchListenerRegistered || !ctx.ui.onTerminalInput) return;
+  searchListenerRegistered = true;
+  ctx.ui.onTerminalInput((data) => handler(data));
+}
 
 /** 查看器环境：tui 引用、cwd、宿主折叠设置（与 pi 转录默认态一致） */
 export interface ViewerEnv {
@@ -636,6 +712,20 @@ export class HistoryViewer extends Container implements Focusable {
   private contentLines: string[] = [];
   private contentWidthCache = -1;
   private lastInnerWidth = 0;
+  /** 查看器内搜索（与 pi 转录搜索同款交互：热键打开，Enter/↑↓ 跳转，Esc 关闭） */
+  private searchActive = false;
+  private searchQuery = "";
+  private searchMatches: { line: number; occurrence: number }[] = [];
+  private searchIndex = -1;
+
+  /** 打开搜索（由终端监听器在拦截 pi 搜索热键后调用） */
+  openSearch(): void {
+    this.searchActive = true;
+    this.searchQuery = "";
+    this.searchMatches = [];
+    this.searchIndex = -1;
+    this.requestRender();
+  }
   /** 各小节组件实例（跨渲染复用，保留折叠/展开状态）与行区间 */
   private sectionRows: Array<{ component: { render(w: number): string[]; handleMouse?(e: unknown): unknown }; start: number; end: number }> = [];
   private sectionComponents: Array<{ render(w: number): string[]; handleMouse?(e: unknown): unknown } | undefined> = [];
@@ -659,8 +749,62 @@ export class HistoryViewer extends Container implements Focusable {
     this.onClose = onClose;
   }
 
+  private fixedRows(): number {
+    return VIEWER_FIXED_ROWS + (this.searchActive ? 1 : 0); // 搜索态多一行搜索框
+  }
+
   private maxContentRows(): number {
-    return Math.max(VIEWER_MIN_CONTENT_ROWS, Math.floor(this.termRows * 0.85) - VIEWER_FIXED_ROWS);
+    return Math.max(VIEWER_MIN_CONTENT_ROWS, Math.floor(this.termRows * 0.85) - this.fixedRows());
+  }
+
+  /** 搜索行内 ‹ › 按钮的列范围（render 时记录，供 handleMouse 点击） */
+  private searchPrevRect: { x: number; w: number } | undefined;
+  private searchNextRect: { x: number; w: number } | undefined;
+
+  /** 把目标行滚动进窗口：已可见则不动；否则放在窗口 1/3 处，保留上下上下文 */
+  private revealLine(line: number): void {
+    const rows = this.maxContentRows();
+    if (line >= this.offset && line < this.offset + rows) return; // 已可见，不滚动
+    const maxOffset = Math.max(0, this.contentLines.length - rows);
+    this.offset = Math.max(0, Math.min(line - Math.floor(rows / 3), maxOffset));
+    this.requestRender();
+  }
+
+  private recomputeMatches(): void {
+    this.searchMatches = [];
+    const q = this.searchQuery.trim().toLowerCase();
+    if (!q) return;
+    this.contentLines.forEach((line, lineIndex) => {
+      // 同一行多处命中逐个登记（occurrence 从左到右递增），切换时从左到右、从上到下
+      findOccurrences(line, q).forEach((_col, occurrence) => this.searchMatches.push({ line: lineIndex, occurrence }));
+    });
+    if (this.searchMatches.length > 0) {
+      this.searchIndex = 0;
+      this.revealLine(this.searchMatches[0]?.line ?? 0);
+    }
+  }
+
+  private stepSearch(delta: number): void {
+    if (this.searchMatches.length === 0) return;
+    this.searchIndex = (this.searchIndex + delta + this.searchMatches.length) % this.searchMatches.length;
+    this.revealLine(this.searchMatches[this.searchIndex]?.line ?? 0);
+  }
+
+  /** 命中样式：全部命中 = searchMatchBg 背景块，当前命中在其上反色强调；主题缺底色时返回 undefined（降级纯反色） */
+  private matchStyles(): MatchStyle | undefined {
+    try {
+      const matchBg = this.theme.getBgAnsi?.("searchMatchBg");
+      const cardBg = this.theme.getBgAnsi?.("customMessageBg");
+      if (matchBg && cardBg) {
+        return {
+          all: (m) => matchBg + m + cardBg,
+          current: (m) => matchBg + "\x1b[7m" + m + "\x1b[27m" + cardBg,
+        };
+      }
+    } catch {
+      // 主题缺 token 时降级
+    }
+    return undefined;
   }
 
   /** 渲染全部正文行（按内容宽度缓存）；正文继承 pi 原生组件：用户/助手消息、thinking、工具折叠 */
@@ -742,6 +886,7 @@ export class HistoryViewer extends Container implements Focusable {
   render(width: number): string[] {
     const w = Math.max(8, width);
     const inner = w - 2;
+    const fixed = this.fixedRows();
     const rows = this.maxContentRows();
     const all = this.buildContentLines(inner);
     this.clampOffset();
@@ -767,18 +912,88 @@ export class HistoryViewer extends Container implements Focusable {
     const out: string[] = [];
     out.push(border(`┌${"─".repeat(inner)}┐`));
     out.push(border("│") + bg(pad(" " + style((_t) => this.theme.fg("customMessageLabel", this.theme.bold(this.title)), this.title))) + border("│"));
+    if (this.searchActive) {
+      // 与 pi 搜索同款：右上角搜索行（输入 + 计数 + ‹/› 切换），右对齐；按钮列范围记录供点击
+      const total = this.searchMatches.length;
+      const current = total > 0 ? this.searchIndex + 1 : 0;
+      const inputText = this.searchQuery ? `${this.searchQuery}▌` : "▌";
+      const btnPrev = this.theme.fg("dim", "‹");
+      const btnNext = this.theme.fg("dim", "›");
+      const counter = this.theme.fg("muted", ` ${current}/${total} `);
+      const content = `  ${inputText}  ${btnPrev}${counter}${btnNext}  `;
+      const contentWidth = visibleWidth(content);
+      const leftPad = Math.max(0, inner - contentWidth);
+      // 按钮列范围（输出行 x，含左边框 1 列）
+      const prevStart = 1 + leftPad + visibleWidth(`  ${inputText}  `);
+      this.searchPrevRect = { x: prevStart, w: 1 };
+      this.searchNextRect = { x: prevStart + 1 + visibleWidth(counter), w: 1 };
+      out.push(border("│") + bg(pad(" ".repeat(leftPad) + content)) + border("│"));
+    }
     out.push(border("│") + bg(pad("")) + border("│"));
     out.push(border("│") + bg(pad(" " + style((_t) => this.theme.fg("dim", this.hint), this.hint))) + border("│"));
-    out.push(border("│") + bg(pad("")) + border("│"));
+    const currentMatch = this.searchActive ? this.searchMatches[this.searchIndex] : undefined;
+    const matchStyles = this.searchActive ? this.matchStyles() : undefined;
     const window = all.slice(this.offset, this.offset + rows);
-    for (const line of window) out.push(border("│") + bg(pad(line)) + border("│"));
-    while (out.length < rows + VIEWER_FIXED_ROWS - 1) out.push(border("│") + bg(pad("")) + border("│"));
+    for (let i = 0; i < window.length; i++) {
+      const line = window[i] ?? "";
+      // 命中行：全部命中轻高亮、当前命中反色强调；同行多处命中按出现顺序处理
+      const contentIndex = this.offset + i;
+      const isCurrentLine = currentMatch !== undefined && currentMatch.line === contentIndex;
+      const matchOnLine = this.searchActive && this.searchMatches.some((m) => m.line === contentIndex);
+      const visible = matchOnLine
+        ? highlightAllMatches(line, this.searchQuery, {
+            currentOccurrence: isCurrentLine ? currentMatch?.occurrence : -1,
+            styles: matchStyles,
+          })
+        : line;
+      out.push(border("│") + bg(pad(visible)) + border("│"));
+    }
+    while (out.length < rows + fixed - 1) out.push(border("│") + bg(pad("")) + border("│"));
     out.push(border(`└${"─".repeat(inner)}┘`));
     return out;
   }
 
   handleInput(data: string): void {
     const kb = getKeybindings();
+    // 搜索态：Esc 关闭、Enter/↑↓ 跳转匹配、退格删除、可打印字符追加
+    if (this.searchActive) {
+      if (kb.matches(data, "tui.altScreen.searchClose")) {
+        this.searchActive = false;
+        this.searchQuery = "";
+        this.searchMatches = [];
+        this.searchIndex = -1;
+        this.requestRender();
+        return;
+      }
+      if (kb.matches(data, "tui.altScreen.searchNext")) {
+        this.stepSearch(1);
+        return;
+      }
+      if (kb.matches(data, "tui.altScreen.searchPrevious")) {
+        this.stepSearch(-1);
+        return;
+      }
+      if (kb.matches(data, "tui.editor.deleteCharBackward")) {
+        this.searchQuery = this.searchQuery.slice(0, -1);
+        this.recomputeMatches();
+        this.requestRender();
+        return;
+      }
+      if (data.length === 1 && data >= " ") {
+        this.searchQuery += data;
+        this.recomputeMatches();
+        return;
+      }
+      return;
+    }
+    if (kb.matches(data, "tui.altScreen.search")) {
+      this.searchActive = true;
+      this.searchQuery = "";
+      this.searchMatches = [];
+      this.searchIndex = -1;
+      this.requestRender();
+      return;
+    }
     if (kb.matches(data, "tui.select.cancel") || kb.matches(data, "tui.select.confirm")) {
       this.onClose();
       return;
@@ -805,8 +1020,26 @@ export class HistoryViewer extends Container implements Focusable {
       };
     }
     if (event.type === "click" && event.button === "left") {
-      // 内容区起点：输出行 5（顶边框/标题/空/提示/空）；x 减 1 为左边框列
-      const contentY = event.y - (VIEWER_FIXED_ROWS - 1);
+      // 搜索行的 ‹ › 按钮（搜索态下位于输出行 2）
+      if (this.searchActive && event.y === 2) {
+        if (this.searchPrevRect && event.x >= this.searchPrevRect.x && event.x < this.searchPrevRect.x + this.searchPrevRect.w) {
+          this.stepSearch(-1);
+          return {
+            handled: true,
+            target: { component: this, originX: event.x, originY: event.y, width: event.width, height: event.height },
+          };
+        }
+        if (this.searchNextRect && event.x >= this.searchNextRect.x && event.x < this.searchNextRect.x + this.searchNextRect.w) {
+          this.stepSearch(1);
+          return {
+            handled: true,
+            target: { component: this, originX: event.x, originY: event.y, width: event.width, height: event.height },
+          };
+        }
+        return undefined;
+      }
+      // 内容区起点 = 头部行数（fixedRows - 1）；x 减 1 为左边框列
+      const contentY = event.y - (this.fixedRows() - 1);
       if (contentY >= 0) {
         const line = this.offset + contentY;
         const hit = this.sectionRows.find((r) => line >= r.start && line < r.end);
@@ -1045,25 +1278,33 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
           }
           initialSelectionIndex = prompts.findIndex((p) => p.entryId === prompt.entryId);
           log("压缩提问：打开只读查看器", prompt.entryId);
-          await ctx.ui.custom<unknown>(
-            (tui, theme, _keybindings, done) => {
-              tuiRef = tui as TuiLike;
-              return new HistoryViewer(
-                `历史提问 #${prompt.index}（已压缩 · 只读）`,
-                sections,
-                theme as ThemeLike,
-                {
-                  tui: tui as { terminal?: { rows?: number }; requestRender?: () => void },
-                  cwd: ctx.cwd ?? "",
-                  ...readPiTuiSettings(),
-                  diffViewMode: config.diffViewMode,
-                },
-                () => done(undefined),
-              );
-            },
-            // 居中 overlay：滚轮/焦点优先路由到查看器，不会带动转录；高度可控，提示行不被裁剪
-            { overlay: true, overlayOptions: { width: "90%", maxHeight: "85%", anchor: "center" } },
-          );
+          registerSearchListener(ctx, viewerSearchInput);
+          try {
+            await ctx.ui.custom<unknown>(
+              (tui, theme, _keybindings, done) => {
+                tuiRef = tui as TuiLike;
+                activeViewer = new HistoryViewer(
+                  `历史提问 #${prompt.index}（已压缩 · 只读）`,
+                  sections,
+                  theme as ThemeLike,
+                  {
+                    tui: tui as { terminal?: { rows?: number }; requestRender?: () => void },
+                    cwd: ctx.cwd ?? "",
+                    ...readPiTuiSettings(),
+                    diffViewMode: config.diffViewMode,
+                  },
+                  () => done(undefined),
+                );
+                // 前置自己：viewport 对搜索热键总是 consume，后置收不到
+                ensureListenerFirst(tui, (data) => viewerSearchInput(data));
+                return activeViewer;
+              },
+              // 居中 overlay：滚轮/焦点优先路由到查看器，不会带动转录；高度可控，提示行不被裁剪
+              { overlay: true, overlayOptions: { width: "90%", maxHeight: "85%", anchor: "center" } },
+            );
+          } finally {
+            activeViewer = undefined;
+          }
           continue; // 返回选择器（保持位置）
         }
 

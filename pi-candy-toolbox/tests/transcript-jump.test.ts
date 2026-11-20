@@ -15,8 +15,10 @@ const {
   HistoryViewer,
   JumpDialog,
   buildViewerSections,
+  findOccurrences,
   findTranscriptContainers,
   formatRelativeTime,
+  highlightAllMatches,
   isSkillComponent,
   isUserMessageComponent,
   listPrompts,
@@ -29,6 +31,7 @@ const {
   renderSplitDiff,
   scrollToRow,
   startsWithSkillBlock,
+  stripTerminalSequences,
   transcriptGeometry,
   userIsLocatable,
 } = await import("../extensions/tools/transcript-jump.ts");
@@ -53,7 +56,7 @@ const r2 = {
 };
 const ENTRIES = [u1, a1, u2, a2tool, r2, u3];
 
-const themeStub = { fg: (_name: string, text: string) => text, bold: (text: string) => text, bg: (_name: string, text: string) => text };
+const themeStub = { fg: (_name: string, text: string) => text, bold: (text: string) => text, bg: (_name: string, text: string) => text, getBgAnsi: (name: string) => `BG[${name}]` };
 
 /** 假组件 */
 function userComponent(lines: string[]): unknown {
@@ -393,7 +396,7 @@ test("viewer scrolls by keys and wheel and keeps the card chrome intact", () => 
   );
 
   const rendered = () => viewer.render(120).join("\n");
-  // 卡片骨架：顶边框/标题/空/提示/空 + 内容窗口（24*0.85=20 - 固定 6 = 14 行）+ 底边框
+  // 卡片骨架：顶边框/标题/空/提示 + 内容窗口（24*0.85=20 - 固定 5 = 15 行）+ 底边框
   const first = viewer.render(120);
   assert.match(first[0] ?? "", /┌/);
   assert.match(first[first.length - 1] ?? "", /└/);
@@ -536,6 +539,128 @@ test("long diff lines wrap instead of truncating", () => {
   const longRows = rendered.filter((l) => l.includes("xxx"));
   assert.ok(longRows.length >= 2, "长行按宽度换行成多行");
   assert.ok(!rendered.join("\n").includes("…"), "不加省略号");
+});
+
+test("viewer search jumps to matches (pi-style interaction)", () => {
+  const sections: any[] = Array.from({ length: 30 }, (_, i) => ({ kind: "prompt", text: `X${i}` }));
+  const viewer = new HistoryViewer(
+    "测试",
+    sections,
+    themeStub,
+    { tui: { terminal: { rows: 24 }, requestRender: () => {} }, cwd: "/tmp" },
+    () => {},
+  );
+  const rendered = () => viewer.render(120).join("\n");
+  viewer.handleInput("\x1b[27;6;102~"); // ctrl+shift+f 打开搜索
+  assert.ok(rendered().includes("‹"), "显示右上角搜索行（含 ‹ › 按钮）");
+  viewer.handleInput("X");
+  viewer.handleInput("2");
+  viewer.handleInput("9");
+  assert.ok(rendered().includes("1/1"), "唯一匹配 X29");
+  assert.ok(rendered().includes("X29"), "匹配行进入视野");
+  assert.ok(rendered().includes("X28"), "保留上下上下文（前一条仍在视野内）");
+  const x29Row = viewer.render(120).find((l) => l.includes("X29") && !l.includes("▌"));
+  assert.ok(x29Row, "找到 X29 内容行");
+  assert.ok(x29Row.includes("BG[searchMatchBg]"), "当前命中用主题背景块突出显示");
+  assert.ok(x29Row.includes("BG[customMessageBg]"), "背景块后恢复卡片底色");
+  viewer.handleInput("\x1b"); // Esc 关闭搜索
+  assert.ok(!rendered().includes("‹"), "关闭后隐藏搜索行");
+  viewer.handleInput("\x1b"); // Esc 再关闭查看器
+});
+
+test("viewer search steps left-to-right within a row (split diff panes) then top-to-bottom", () => {
+  const sections: any[] = [
+    {
+      kind: "tool",
+      tool: {
+        name: "edit",
+        id: "t1",
+        args: { path: "a.txt" },
+        result: { content: [{ type: "text", text: "done" }], details: { diff: "-old line\n+old line" }, isError: false },
+      },
+    },
+    { kind: "prompt", text: "hit" },
+  ];
+  const viewer = new HistoryViewer(
+    "测试",
+    sections,
+    themeStub,
+    { tui: { terminal: { rows: 24 }, requestRender: () => {} }, cwd: "/tmp", diffViewMode: "split" },
+    () => {},
+  );
+  const rendered = () => viewer.render(120).join("\n");
+  viewer.handleInput("\x1b[27;6;102~"); // ctrl+shift+f 打开搜索
+  assert.ok(rendered().includes("‹"), "显示搜索行（首次渲染构建正文缓存）");
+  viewer.handleInput("o");
+  viewer.handleInput("l");
+  viewer.handleInput("d");
+  // 同一双栏行有两处命中（左栏 -old line、右栏 +old line）+ 下一行 hit 无命中 → 共 2 处
+  assert.ok(rendered().includes("1/2"), "计数按命中处数（同行多处分别计数）");
+  const plain = (l: string): string => stripTerminalSequences(l).replace(/BG\[[^\]]*\]/g, "");
+  const diffRow = () => viewer.render(120).find((l) => plain(l).includes("-old line"));
+  const strong = "BG[searchMatchBg]\x1b[7m"; // 当前命中：背景块 + 反色
+  const marker = "BG[searchMatchBg]"; // 全部命中：背景块
+  const row0 = diffRow() ?? "";
+  assert.equal((row0.match(/BG\[searchMatchBg\]/g) ?? []).length, 2, "双栏两处都高亮");
+  assert.ok(row0.indexOf(strong) < row0.lastIndexOf(marker), "当前命中先是左栏（从左到右）");
+  viewer.handleInput("\r"); // Enter → 下一处
+  assert.ok(rendered().includes("2/2"));
+  const row1 = diffRow() ?? "";
+  assert.equal((row1.match(/BG\[searchMatchBg\]/g) ?? []).length, 2, "双栏两处都高亮");
+  assert.ok(row1.indexOf(marker) < row1.indexOf(strong), "切到右栏命中（同行从左到右）");
+  viewer.handleInput("\r"); // Enter → 循环回第一处
+  assert.ok(rendered().includes("1/2"));
+});
+
+test("pi search hotkey opens viewer search while the viewer is open", async () => {
+  const ui = makeCtx({ entries: ENTRIES, contextEntries: [u3], mode: "tui" });
+  const { command } = registerTool();
+  const run = command?.handler("", ui.ctx);
+  await Promise.resolve();
+  const { tui } = makeTui();
+  ui.custom.factory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value)); // 选择器
+  ui.resolveCustom({ value: "u1" }); // 选中压缩项
+  await Promise.resolve();
+  const viewer = ui.custom.factory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
+  assert.equal(typeof (viewer as any)?.openSearch, "function");
+
+  const listener = ui.terminalHandlers[0];
+  assert.ok(listener, "已注册终端监听器");
+  assert.deepEqual(listener("\x1b[27;6;102~"), { consume: true }, "查看器打开时拦截 pi 搜索热键");
+  const rendered = (viewer as any)?.render?.(120)?.join("\n") ?? "";
+  assert.ok(rendered.includes("‹"), "打开查看器内搜索（右上角搜索行）");
+
+  ui.resolveCustom(undefined); // 关查看器
+  await Promise.resolve();
+  ui.resolveCustom(null); // 关选择器
+  await run;
+  assert.equal(listener("\x1b[27;6;102~"), undefined, "查看器关闭后热键放行给 pi 转录搜索");
+});
+
+test("findOccurrences lists every hit column left to right", () => {
+  assert.deepEqual(findOccurrences("ab cd ab ab", "ab"), [0, 6, 9]);
+  assert.deepEqual(findOccurrences("AbC", "abc"), [0], "大小写不敏感");
+  assert.deepEqual(findOccurrences("abc", "xyz"), [], "无匹配为空");
+  assert.deepEqual(findOccurrences("abc", ""), [], "空查询为空");
+});
+
+test("highlightAllMatches highlights every occurrence, current one stronger", () => {
+  const styles = { all: (m: string) => `<a>${m}</a>`, current: (m: string) => `<A>${m}</A>` };
+  assert.equal(highlightAllMatches("ab cd ab", "ab", { styles }), "<a>ab</a> cd <a>ab</a>");
+  assert.equal(highlightAllMatches("ab cd ab", "ab", { currentOccurrence: 1, styles }), "<a>ab</a> cd <A>ab</A>");
+  assert.equal(highlightAllMatches("ab", "xyz", { styles }), "ab", "无匹配原样返回");
+  assert.equal(highlightAllMatches("ab", "ab"), "\x1b[7mab\x1b[27m", "无样式降级为反色");
+  assert.equal(highlightAllMatches("ab", "ab", { currentOccurrence: 0 }), "\x1b[7m\x1b[1mab\x1b[22m\x1b[27m", "降级时当前命中反色+粗体");
+});
+
+test("highlightAllMatches strips bg/reset codes inside the match slice", () => {
+  const styles = { all: (m: string) => `<a>${m}</a>`, current: (m: string) => `<A>${m}</A>` };
+  // 命中片段内含背景码与复位序列（真实场景：双栏 diff 右栏切片重新输出样式状态）——
+  // 若不清除，\x1b[27m 会取消包裹的反色、\x1b[48;...m 会覆盖包裹的底色
+  const messy = "ab \x1b[48;2;37;65;49m\x1b[38;2;126;136;142m\x1b[39m\x1b[22m\x1b[27m\x1b[38;2;126;136;142mcd";
+  const out = highlightAllMatches(messy, "cd", { currentOccurrence: 0, styles });
+  assert.equal(out, "ab <A>\x1b[38;2;126;136;142m\x1b[38;2;126;136;142mcd</A>", "仅保留前景码，背景/复位码已清除");
+  assert.ok(!out.includes("\x1b[22m") && !out.includes("\x1b[27m") && !out.includes("\x1b[48;"), "背景与复位码已从命中片段清除");
 });
 
 /* ── 命令 / 快捷键集成 ──────────────────────────────────────────── */
