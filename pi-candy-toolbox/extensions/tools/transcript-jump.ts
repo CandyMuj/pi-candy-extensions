@@ -69,6 +69,8 @@ export interface TranscriptJumpConfig {
 
 /** 预览单行显示宽度上限（防超长消息占内存；正常提问远小于此，视觉截断交给 SelectList 按终端宽度做） */
 const PREVIEW_MAX_WIDTH = 400;
+/** 主列给右侧时间/压缩标记列预留的最小显示宽度 */
+const PICKER_TIME_RESERVE = 24;
 
 // ── 局部最小类型（零额外依赖）──────────────────────────────────────
 /** 渲染组件的最小形状（render 返回行数组） */
@@ -1079,6 +1081,7 @@ export class JumpDialog extends Container implements Focusable {
   private listSlot: number;
   private readonly pageSize: number;
   private readonly onPick: (item: SelectItem) => void;
+  private builtWidth = -1;
   private readonly onClose: () => void;
   private _focused = false;
 
@@ -1121,9 +1124,12 @@ export class JumpDialog extends Container implements Focusable {
   }
 
   private buildList(items: SelectItem[]): SelectList {
+    // 主列上限 = 终端宽度 - 时间列预留：长提问尽可能展示，同时保证右侧时间/压缩标记不缺失
+    // （首帧前 builtWidth 未知，先不设上限，render 时按实际宽度重建）
+    const primaryCap = this.builtWidth > 0 ? Math.max(10, this.builtWidth - PICKER_TIME_RESERVE) : 10_000;
     const list = new SelectList(items, this.pageSize, getSelectListTheme(), {
       minPrimaryColumnWidth: 10,
-      maxPrimaryColumnWidth: 72,
+      maxPrimaryColumnWidth: primaryCap,
       // 按显示宽度截断（含 CJK/emoji 宽度），超宽加省略号——不再固定字符数截断
       truncatePrimary: (ctx) => truncateToWidth(ctx.text, ctx.maxWidth, "…"),
     });
@@ -1133,6 +1139,18 @@ export class JumpDialog extends Container implements Focusable {
     list.onSelect = (item) => this.onPick(item);
     list.onCancel = () => this.onClose();
     return list;
+  }
+
+  /** 宽度变化时重建列表（列宽上限依赖终端宽度；保留当前选中项）。 */
+  render(width: number): string[] {
+    const w = Math.max(8, width);
+    if (w !== this.builtWidth) {
+      this.builtWidth = w;
+      this.list = this.buildList(this.filteredItems);
+      this.children[this.listSlot] = this.list;
+      this.list.setSelectedIndex(this.currentIndex);
+    }
+    return super.render(w);
   }
 
   private applyFilter(query: string): void {
