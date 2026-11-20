@@ -19,7 +19,7 @@
  *     不滚动、不切换会话点；任何失败仅 notify 并停在当前
  *   - 依赖 tui.children 的结构与组件 render 测高（与 editor-history 同级内部 API 依赖），无回归保证
  */
-import { getSelectListTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, getMarkdownTheme, getSelectListTheme, UserMessageComponent, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   Container,
   type Focusable,
@@ -359,8 +359,11 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
 
 /** 查看器正文小节 */
 export interface ViewerSection {
-  kind: "prompt" | "heading" | "reply" | "tools";
-  text: string;
+  kind: "prompt" | "assistant" | "tools";
+  /** prompt 原文 / 工具占位文案 */
+  text?: string;
+  /** assistant 原始消息（交给原生 AssistantMessageComponent 渲染） */
+  message?: EntryLike["message"];
 }
 
 /**
@@ -376,12 +379,6 @@ export function buildViewerSections(entries: EntryLike[], entryId: string): View
   const sections: ViewerSection[] = [];
   const promptText = entryText(first).trim();
   if (promptText) sections.push({ kind: "prompt", text: promptText });
-  let headingAdded = false;
-  const ensureHeading = (): void => {
-    if (headingAdded) return;
-    sections.push({ kind: "heading", text: "── 助手回复 ──" });
-    headingAdded = true;
-  };
   for (let i = start + 1; i < entries.length; i++) {
     const e = entries[i];
     if (!e) continue;
@@ -390,19 +387,13 @@ export function buildViewerSections(entries: EntryLike[], entryId: string): View
     if (e.message?.role !== "assistant") continue;
     const text = entryText(e).trim();
     const hasTools = Array.isArray(e.message?.content) && e.message.content.some((b) => b?.type === "tool_use");
-    if (hasTools) {
-      ensureHeading();
-      sections.push({ kind: "tools", text: "（工具调用，已略过）" }); // 按时间序：工具调用在文本回复之前
-    }
-    if (text) {
-      ensureHeading();
-      sections.push({ kind: "reply", text });
-    }
+    if (hasTools) sections.push({ kind: "tools", text: "（工具调用，已略过）" }); // 按时间序：工具调用在文本回复之前
+    if (text) sections.push({ kind: "assistant", message: e.message });
   }
   return sections;
 }
 
-/** 压缩提问的只读查看器：Esc/Enter 关闭返回列表；↑↓/翻页滚动；不触碰会话与转录 */
+/** 压缩提问的只读查看器（overlay）：原生消息组件渲染，Esc/Enter 关闭返回列表；↑↓/翻页/滚轮滚动 */
 class HistoryViewer extends Container implements Focusable {
   private readonly scroll: ScrollView;
   private readonly onClose: () => void;
@@ -422,16 +413,32 @@ class HistoryViewer extends Container implements Focusable {
     this.addChild(new Spacer(1));
     this.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
     this.addChild(new Spacer(1));
+    // 提示行放在正文上方：内容超高时也不会被裁剪
+    this.addChild(new Text(theme.fg("dim", "↑↓ 滚动 · PageUp/PageDown 翻页 · Esc/Enter 返回列表"), 1, 0));
+    this.addChild(new Spacer(1));
 
+    // 正文继承 pi 原生渲染：用户消息/助手消息组件与转录完全一致（markdown、主题自动同步）
     const body = new Container();
     for (const s of sections) {
-      body.addChild(new Text(s.kind === "prompt" || s.kind === "reply" ? s.text : theme.fg("dim", s.text), 1, 0));
+      if (s.kind === "prompt") {
+        body.addChild(new UserMessageComponent(s.text ?? "", getMarkdownTheme(), 1));
+      } else if (s.kind === "assistant" && s.message) {
+        body.addChild(
+          new AssistantMessageComponent(
+            s.message as ConstructorParameters<typeof AssistantMessageComponent>[0],
+            undefined,
+            getMarkdownTheme(),
+            undefined,
+            1,
+          ),
+        );
+      } else {
+        body.addChild(new Text(theme.fg("dim", s.text ?? ""), 1, 0));
+      }
       body.addChild(new Spacer(1));
     }
     this.scroll = new ScrollView(body, { follow: "none", primary: true, overscroll: "contain", scrollbar: "auto" });
     this.addChild(this.scroll);
-    this.addChild(new Spacer(1));
-    this.addChild(new Text(theme.fg("dim", "↑↓ 滚动 · PageUp/PageDown 翻页 · Esc/Enter 返回列表"), 1, 0));
     this.addChild(new Spacer(1));
     this.addChild(new BorderLine((text) => theme.fg("border", text)));
   }
@@ -677,6 +684,8 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
               tuiRef = tui as TuiLike;
               return new HistoryViewer(`历史提问 #${prompt.index}（已压缩 · 只读）`, sections, theme as ThemeLike, () => done(undefined));
             },
+            // 居中 overlay：滚轮/焦点优先路由到查看器，不会带动转录；高度可控，提示行不被裁剪
+            { overlay: true, overlayOptions: { width: "90%", maxHeight: "85%", anchor: "center" } },
           );
           continue; // 返回选择器（保持位置）
         }

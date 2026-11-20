@@ -335,8 +335,7 @@ test("buildViewerSections includes the prompt and replies until the next user me
   const sections = buildViewerSections(ENTRIES, "u1");
   assert.deepEqual(sections, [
     { kind: "prompt", text: "第一个问题" },
-    { kind: "heading", text: "── 助手回复 ──" },
-    { kind: "reply", text: "回答一" },
+    { kind: "assistant", message: a1.message },
   ]);
 });
 
@@ -344,9 +343,8 @@ test("buildViewerSections skips tool calls with a placeholder before the reply",
   const sections = buildViewerSections(ENTRIES, "u2");
   assert.deepEqual(sections, [
     { kind: "prompt", text: "第二个问题" },
-    { kind: "heading", text: "── 助手回复 ──" },
     { kind: "tools", text: "（工具调用，已略过）" },
-    { kind: "reply", text: "带工具的回复" },
+    { kind: "assistant", message: a2tool.message },
   ]);
 });
 
@@ -355,8 +353,7 @@ test("buildViewerSections tolerates missing entries and non-message types", () =
   const withCustom = [u1, { type: "compaction", id: "c1" }, a1, u2];
   assert.deepEqual(buildViewerSections(withCustom, "u1"), [
     { kind: "prompt", text: "第一个问题" },
-    { kind: "heading", text: "── 助手回复 ──" },
-    { kind: "reply", text: "回答一" },
+    { kind: "assistant", message: a1.message },
   ]);
 });
 
@@ -409,12 +406,18 @@ test("selecting a compacted prompt opens a read-only viewer and never scrolls", 
   ui.resolveCustom({ value: "u1" }); // 选中被压缩的 u1
   await Promise.resolve();
 
-  // 第二轮：只读查看器（含原文与随后的助手回复）
+  // 第二轮：只读查看器（overlay，含原文与随后的助手回复）
   const viewerFactory = ui.custom.factory;
+  assert.deepEqual(
+    ui.custom.options,
+    { overlay: true, overlayOptions: { width: "90%", maxHeight: "85%", anchor: "center" } },
+    "查看器应为居中 overlay",
+  );
   const viewer = viewerFactory?.(tui, themeStub, {}, (value: any) => ui.resolveCustom(value));
   assert.equal(typeof (viewer as any)?.handleInput, "function");
   const renderedViewer = (viewer as any)?.render?.(120)?.join("\n") ?? "";
   assert.match(renderedViewer, /历史提问 #1（已压缩 · 只读）/);
+  assert.match(renderedViewer, /↑↓ 滚动/, "提示行应位于正文上方可见");
   assert.match(renderedViewer, /第一个问题/);
   assert.match(renderedViewer, /回答一/);
   assert.deepEqual(scrollCalls, [], "查看期间不得滚动");
