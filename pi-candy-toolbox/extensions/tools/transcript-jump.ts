@@ -19,7 +19,19 @@
  *     不滚动、不切换会话点；任何失败仅 notify 并停在当前
  *   - 依赖 tui.children 的结构与组件 render 测高（与 editor-history 同级内部 API 依赖），无回归保证
  */
-import { AssistantMessageComponent, getMarkdownTheme, getSelectListTheme, UserMessageComponent, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  AssistantMessageComponent,
+  getAgentDir,
+  getMarkdownTheme,
+  getSelectListTheme,
+  renderDiff,
+  ToolExecutionComponent,
+  UserMessageComponent,
+  type ExtensionAPI,
+  type ToolRenderers,
+} from "@earendil-works/pi-coding-agent";
 import {
   Container,
   type Component,
@@ -75,6 +87,7 @@ interface TuiLike {
 
 interface PickerCtx {
   mode?: string;
+  cwd?: string;
   sessionManager?: {
     getEntries(): unknown[];
     /** 当前分支（leaf 到根的祖先链，含压缩前缀；不含被 /tree 切走的旧分支） */
@@ -361,16 +374,24 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
 
 /** 查看器正文小节 */
 export interface ViewerSection {
-  kind: "prompt" | "assistant" | "tools";
-  /** prompt 原文 / 工具占位文案 */
+  kind: "prompt" | "assistant" | "tool";
+  /** prompt 原文 */
   text?: string;
-  /** assistant 原始消息（交给原生 AssistantMessageComponent 渲染） */
+  /** assistant 原始消息（交给原生 AssistantMessageComponent 渲染，含 thinking 折叠） */
   message?: EntryLike["message"];
+  /** 工具调用（交给原生 ToolExecutionComponent 渲染，含折叠） */
+  tool?: {
+    name: string;
+    id: string;
+    args: unknown;
+    result?: { content: unknown[]; details?: unknown; isError: boolean };
+  };
 }
 
 /**
- * 压缩提问的查看器内容：提问原文 + 随后（下一条用户消息之前）的助手回复；
- * 工具调用以占位符略过（tool_use 块不展示内容，只标记「已略过」）。
+ * 压缩提问的查看器内容：提问原文 + 随后（下一条用户消息之前）的助手消息与工具调用。
+ * 助手消息整体交给 AssistantMessageComponent（text + thinking，跳过其它块类型），
+ * 工具调用拆成独立 tool 小节（官方渲染路径：历史条目用 toolCall/tool_use 块单独建 ToolExecutionComponent）。
  * 找不到该提问时返回空数组。
  */
 export function buildViewerSections(entries: EntryLike[], entryId: string): ViewerSection[] {
@@ -379,6 +400,7 @@ export function buildViewerSections(entries: EntryLike[], entryId: string): View
   const first = entries[start];
   if (!first) return [];
   const sections: ViewerSection[] = [];
+  const toolByCallId = new Map<string, NonNullable<ViewerSection["tool"]>>();
   const promptText = entryText(first).trim();
   if (promptText) sections.push({ kind: "prompt", text: promptText });
   for (let i = start + 1; i < entries.length; i++) {
@@ -386,13 +408,69 @@ export function buildViewerSections(entries: EntryLike[], entryId: string): View
     if (!e) continue;
     if (isUserMessage(e)) break; // 下一条用户消息起属于下一轮
     if (e.type && e.type !== "message") continue;
-    if (e.message?.role !== "assistant") continue;
-    const text = entryText(e).trim();
-    const hasTools = Array.isArray(e.message?.content) && e.message.content.some((b) => b?.type === "tool_use");
-    if (hasTools) sections.push({ kind: "tools", text: "（工具调用，已略过）" }); // 按时间序：工具调用在文本回复之前
-    if (text) sections.push({ kind: "assistant", message: e.message });
+    if (e.message?.role === "assistant") {
+      sections.push({ kind: "assistant", message: e.message });
+      const blocks = Array.isArray(e.message.content) ? e.message.content : [];
+      for (const b of blocks) {
+        if (b?.type !== "toolCall" && b?.type !== "tool_use") continue;
+        const tool = b as { name?: string; id?: string; arguments?: unknown; input?: unknown };
+        const item = { name: tool.name ?? "tool", id: tool.id ?? "", args: tool.arguments ?? tool.input ?? {} };
+        toolByCallId.set(item.id, item);
+        sections.push({ kind: "tool", tool: item });
+      }
+      continue;
+    }
+    if (e.message?.role === "toolResult") {
+      // 会话格式里工具结果是独立 message 条目（role: toolResult），回填到对应调用
+      const msg = e.message as { toolCallId?: string; content?: unknown[]; details?: unknown; isError?: boolean };
+      const item = typeof msg.toolCallId === "string" ? toolByCallId.get(msg.toolCallId) : undefined;
+      if (item) {
+        item.result = { content: msg.content ?? [], details: msg.details, isError: msg.isError === true };
+      }
+    }
   }
   return sections;
+}
+
+/**
+ * 读取宿主 pi 的 TUI 折叠设置（查看器继承 pi 的默认展示态）；
+ * 读不到（无 settings.json / 解析失败）时回退 pi 默认值。
+ */
+export function readPiTuiSettings(agentDir: string = getAgentDir()): { hideThinkingBlock: boolean; toolOutputExpanded: boolean } {
+  try {
+    const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")) as {
+      hideThinkingBlock?: unknown;
+      toolOutputExpanded?: unknown;
+    };
+    return {
+      hideThinkingBlock: raw.hideThinkingBlock === true,
+      toolOutputExpanded: raw.toolOutputExpanded === true,
+    };
+  } catch {
+    return { hideThinkingBlock: false, toolOutputExpanded: false };
+  }
+}
+
+/**
+ * 内置工具渲染器的最小复刻：官方内置 renderer 未随包导出（exports 只开放 "."），
+ * 这里仅用官方导出的 renderDiff 复刻 pi 自身的编辑类展示（edit/write 的 diff 预览），
+ * 其余内置/自定义工具走 ToolExecutionComponent 通用兜底。
+ */
+function builtinLikeRenderers(): Record<string, ToolRenderers> {
+  const editorLike = (label: string): ToolRenderers =>
+    ({
+      renderCall: (args: any, theme: any) => {
+        const path = String(args?.file_path ?? args?.path ?? "");
+        return new Text(`${theme.fg("toolTitle", theme.bold(label))} ${path}`, 0, 0);
+      },
+      renderResult: (result: any, _options: any, _theme: any, context: any) => {
+        const diff = result?.details?.diff;
+        if (typeof diff !== "string" || !diff) return new Container();
+        const path = String(context?.args?.file_path ?? context?.args?.path ?? "");
+        return new Text(renderDiff(diff, { filePath: path || undefined }), 0, 0);
+      },
+    }) as ToolRenderers;
+  return { edit: editorLike("edit"), write: editorLike("write") };
 }
 
 /** 查看器固定开销行数：顶边框 + 空行 + 标题 + 空行 + 提示行 + 空行 */
@@ -400,24 +478,38 @@ const VIEWER_FIXED_ROWS = 6;
 /** 内容区最小行数 */
 const VIEWER_MIN_CONTENT_ROWS = 5;
 
+/** 查看器环境：tui 引用、cwd、宿主折叠设置（与 pi 转录默认态一致） */
+export interface ViewerEnv {
+  tui: { terminal?: { rows?: number }; requestRender?: () => void };
+  cwd?: string;
+  hideThinkingBlock?: boolean;
+  toolOutputExpanded?: boolean;
+}
+
 /**
  * 压缩提问的只读查看器（overlay 卡片）。
  * overlay 的子组件不做布局测量（renderedOverlayLayouts 只记录边界，不处理 LAYOUT_NODE），
  * ScrollView 在里面永远测不到视口 → 改自绘窗口滚动：render 时按 offset 切片，
  * 滚轮由 handleMouse 消费、↑↓/翻页由 handleInput 处理。
  * 样式：customMessageBg 底色（pi 自定义消息框同款）+ 完整盒边框，与转录背景清晰区隔，避免视觉凌乱。
+ * 内容渲染继承 pi 原生：用户/助手消息、thinking 折叠、工具调用折叠均为官方组件与宿主设置。
  */
 export class HistoryViewer extends Container implements Focusable {
   private readonly title: string;
   private readonly hint = "↑↓ 滚动 · PageUp/PageDown 翻页 · Esc/Enter 返回列表";
   private readonly theme: ThemeLike;
   private readonly sections: ViewerSection[];
+  private readonly env: ViewerEnv;
   private readonly termRows: number;
   private readonly requestRender: () => void;
   private readonly onClose: () => void;
   private offset = 0;
   private contentLines: string[] = [];
   private contentWidthCache = -1;
+  private lastInnerWidth = 0;
+  /** 各小节组件实例（跨渲染复用，保留折叠/展开状态）与行区间 */
+  private sectionRows: Array<{ component: { render(w: number): string[]; handleMouse?(e: unknown): unknown }; start: number; end: number }> = [];
+  private sectionComponents: Array<{ render(w: number): string[]; handleMouse?(e: unknown): unknown } | undefined> = [];
   private _focused = false;
 
   get focused(): boolean {
@@ -427,19 +519,14 @@ export class HistoryViewer extends Container implements Focusable {
     this._focused = value;
   }
 
-  constructor(
-    title: string,
-    sections: ViewerSection[],
-    theme: ThemeLike,
-    tui: { terminal?: { rows?: number }; requestRender?: () => void },
-    onClose: () => void,
-  ) {
+  constructor(title: string, sections: ViewerSection[], theme: ThemeLike, env: ViewerEnv, onClose: () => void) {
     super();
     this.title = title;
     this.theme = theme;
     this.sections = sections;
-    this.termRows = tui?.terminal?.rows ?? 24;
-    this.requestRender = tui?.requestRender ?? (() => {});
+    this.env = env;
+    this.termRows = env.tui?.terminal?.rows ?? 24;
+    this.requestRender = env.tui?.requestRender ?? (() => {});
     this.onClose = onClose;
   }
 
@@ -447,27 +534,56 @@ export class HistoryViewer extends Container implements Focusable {
     return Math.max(VIEWER_MIN_CONTENT_ROWS, Math.floor(this.termRows * 0.85) - VIEWER_FIXED_ROWS);
   }
 
-  /** 渲染全部正文行（按内容宽度缓存）；正文继承 pi 原生消息组件，与转录渲染一致 */
+  /** 渲染全部正文行（按内容宽度缓存）；正文继承 pi 原生组件：用户/助手消息、thinking、工具折叠 */
   private buildContentLines(innerWidth: number): string[] {
     if (this.contentWidthCache === innerWidth) return this.contentLines;
     this.contentWidthCache = innerWidth;
+    this.lastInnerWidth = innerWidth;
     const lines: string[] = [];
-    for (const s of this.sections) {
+    this.sectionRows = [];
+    const builtins = builtinLikeRenderers();
+    for (let i = 0; i < this.sections.length; i++) {
+      const s = this.sections[i];
+      if (!s) continue;
       if (lines.length > 0) lines.push("");
-      if (s.kind === "prompt") {
-        const component = new UserMessageComponent(s.text ?? "", getMarkdownTheme(), 1);
-        lines.push(...component.render(innerWidth));
-      } else if (s.kind === "assistant" && s.message) {
-        const component = new AssistantMessageComponent(
-          s.message as ConstructorParameters<typeof AssistantMessageComponent>[0],
-          undefined,
-          getMarkdownTheme(),
-          undefined,
-          1,
-        );
-        lines.push(...component.render(innerWidth));
-      } else {
-        lines.push(this.theme.fg("dim", s.text ?? ""));
+      const lineStart = lines.length;
+      let component: { render(w: number): string[]; handleMouse?(e: unknown): unknown } | undefined = this.sectionComponents[i];
+      if (!component) {
+        if (s.kind === "prompt") {
+          component = new UserMessageComponent(s.text ?? "", getMarkdownTheme(), 1);
+        } else if (s.kind === "assistant" && s.message) {
+          component = new AssistantMessageComponent(
+            s.message as ConstructorParameters<typeof AssistantMessageComponent>[0],
+            this.env.hideThinkingBlock,
+            getMarkdownTheme(),
+            undefined,
+            1,
+          );
+        } else if (s.kind === "tool" && s.tool) {
+          const toolComponent = new ToolExecutionComponent(
+            s.tool.name,
+            s.tool.id,
+            s.tool.args,
+            { outputPad: 1 },
+            builtins[s.tool.name],
+            this.env.tui as never,
+            this.env.cwd ?? "",
+          );
+          toolComponent.setExpanded(this.env.toolOutputExpanded ?? false);
+          if (s.tool.result) {
+            toolComponent.updateResult(
+              { content: s.tool.result.content as never[], details: s.tool.result.details, isError: s.tool.result.isError },
+              false,
+            );
+          }
+          component = toolComponent;
+        }
+        this.sectionComponents[i] = component;
+      }
+      if (component) {
+        const sectionLines = component.render(innerWidth);
+        lines.push(...sectionLines);
+        this.sectionRows.push({ component, start: lineStart, end: lineStart + sectionLines.length });
       }
     }
     this.contentLines = lines;
@@ -536,16 +652,43 @@ export class HistoryViewer extends Container implements Focusable {
     if (delta !== 0) this.scrollBy(delta);
   }
 
-  /** 滚轮：overlay 命中后事件会派发到这里（ScrollView 在 overlay 中不可用），自行消费滚动 */
+  /** 滚轮/点击：overlay 命中后事件派发到这里。滚轮自行消费滚动；点击转发给对应小节组件（折叠/展开切换） */
   handleMouse(event: TuiMouseEvent):
     | { handled: true; target: { component: Component; originX: number; originY: number; width: number; height: number } }
     | undefined {
-    if (event.type === "wheel" && typeof event.wheelDelta === "number" && event.wheelDelta !== 0) {
-      this.scrollBy(event.wheelDelta);
+    const wheelDelta = (event as { wheelDelta?: number }).wheelDelta;
+    if (event.type === "wheel" && typeof wheelDelta === "number" && wheelDelta !== 0) {
+      this.scrollBy(wheelDelta);
       return {
         handled: true,
         target: { component: this, originX: event.x, originY: event.y, width: event.width, height: event.height },
       };
+    }
+    if (event.type === "click" && event.button === "left") {
+      // 内容区起点：输出行 5（顶边框/标题/空/提示/空）；x 减 1 为左边框列
+      const contentY = event.y - (VIEWER_FIXED_ROWS - 1);
+      if (contentY >= 0) {
+        const line = this.offset + contentY;
+        const hit = this.sectionRows.find((r) => line >= r.start && line < r.end);
+        if (hit?.component.handleMouse) {
+          const result = hit.component.handleMouse({
+            ...event,
+            x: event.x - 1,
+            y: line - hit.start,
+            width: this.lastInnerWidth,
+            height: hit.end - hit.start,
+          });
+          if (result) {
+            this.contentWidthCache = -1; // 折叠态已变，重建行与偏移
+            this.requestRender();
+            return {
+              handled: true,
+              target: { component: this, originX: event.x, originY: event.y, width: event.width, height: event.height },
+            };
+          }
+        }
+      }
+      return undefined;
     }
     return undefined;
   }
@@ -769,7 +912,11 @@ const tool: ToolDefinition<TranscriptJumpConfig> = {
                 `历史提问 #${prompt.index}（已压缩 · 只读）`,
                 sections,
                 theme as ThemeLike,
-                tui as { terminal?: { rows?: number }; requestRender?: () => void },
+                {
+                  tui: tui as { terminal?: { rows?: number }; requestRender?: () => void },
+                  cwd: ctx.cwd ?? "",
+                  ...readPiTuiSettings(),
+                },
                 () => done(undefined),
               );
             },

@@ -2,9 +2,11 @@
  * tools/transcript-jump.ts：提问列表、组件树定位、命令与快捷键
  */
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { makeCtx, makeLogger, makePiStub } from "./helpers.ts";
+import { makeCtx, makeLogger, makePiStub, useTempAgentDir } from "./helpers.ts";
 
 initTheme("dark"); // SelectList/getSelectListTheme 渲染需要已初始化的主题
 
@@ -21,6 +23,7 @@ const {
   locatePromptRow,
   locateTarget,
   promptIdAtRow,
+  readPiTuiSettings,
   renderHeight,
   scrollToRow,
   startsWithSkillBlock,
@@ -40,7 +43,13 @@ const a2tool = {
   message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "bash" }, { type: "text", text: "带工具的回复" }] },
 };
 const u3 = { type: "message", id: "u3", timestamp: NOW - 60_000, message: { role: "user", content: [{ type: "text", text: "第三个问题" }] } };
-const ENTRIES = [u1, a1, u2, a2tool, u3];
+const r2 = {
+  type: "message",
+  id: "r2",
+  timestamp: NOW - 90_000,
+  message: { role: "toolResult", toolCallId: "t1", content: [{ type: "text", text: "done" }], isError: false },
+};
+const ENTRIES = [u1, a1, u2, a2tool, r2, u3];
 
 const themeStub = { fg: (_name: string, text: string) => text, bold: (text: string) => text, bg: (_name: string, text: string) => text };
 
@@ -341,12 +350,15 @@ test("buildViewerSections includes the prompt and replies until the next user me
   ]);
 });
 
-test("buildViewerSections skips tool calls with a placeholder before the reply", () => {
+test("buildViewerSections extracts tool calls and attaches their results", () => {
   const sections = buildViewerSections(ENTRIES, "u2");
   assert.deepEqual(sections, [
     { kind: "prompt", text: "第二个问题" },
-    { kind: "tools", text: "（工具调用，已略过）" },
     { kind: "assistant", message: a2tool.message },
+    {
+      kind: "tool",
+      tool: { name: "bash", id: "t1", args: {}, result: { content: [{ type: "text", text: "done" }], details: undefined, isError: false } },
+    },
   ]);
 });
 
@@ -359,57 +371,87 @@ test("buildViewerSections tolerates missing entries and non-message types", () =
   ]);
 });
 
+test("readPiTuiSettings reads host settings and falls back to pi defaults", () => {
+  const dir = useTempAgentDir(); // 新临时 agent 目录：无 settings.json → 回退默认
+  assert.deepEqual(readPiTuiSettings(), { hideThinkingBlock: false, toolOutputExpanded: false });
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({ hideThinkingBlock: true, toolOutputExpanded: true }));
+  assert.deepEqual(readPiTuiSettings(), { hideThinkingBlock: true, toolOutputExpanded: true });
+});
+
 test("viewer scrolls by keys and wheel and keeps the card chrome intact", () => {
-  const sections: any[] = Array.from({ length: 30 }, (_, i) => ({ kind: "tools", text: `L${i}` }));
+  const sections: any[] = Array.from({ length: 30 }, (_, i) => ({ kind: "prompt", text: `X${i}` }));
   const closed: number[] = [];
   const renders: number[] = [];
   const viewer = new HistoryViewer(
     "测试查看器",
     sections,
     themeStub,
-    { terminal: { rows: 24 }, requestRender: () => renders.push(1) },
+    { tui: { terminal: { rows: 24 }, requestRender: () => renders.push(1) }, cwd: "/tmp" },
     () => closed.push(1),
   );
 
-  const lines = () => viewer.render(120);
-  const firstContentLine = () => lines()[5] ?? "";
+  const rendered = () => viewer.render(120).join("\n");
   // 卡片骨架：顶边框/标题/空/提示/空 + 内容窗口（24*0.85=20 - 固定 6 = 14 行）+ 底边框
-  const first = lines();
+  const first = viewer.render(120);
   assert.match(first[0] ?? "", /┌/);
   assert.match(first[first.length - 1] ?? "", /└/);
   assert.equal(first.length, 20);
-  assert.ok(firstContentLine().includes("L0"), "初始显示第一条内容");
-  assert.ok(renders.length >= 0);
+  assert.ok(rendered().includes("X0"), "初始显示第一条内容");
+  assert.ok(!rendered().includes("X29"), "尾部内容初始不可见");
 
-  viewer.handleInput("\x1b[B"); // ↓
-  viewer.handleInput("\x1b[B");
-  assert.ok(firstContentLine().includes("L1"), "下移两行后首行变为第二条内容");
-  assert.equal(renders.length, 2, "滚动应请求重绘");
+  for (let i = 0; i < 200; i++) viewer.handleInput("\x1b[B"); // 一直向下滚到末尾（超量滚动被钳制）
+  assert.ok(rendered().includes("X29"), "滚到底可见最后一条");
+  assert.equal(renders.length, 200, "每次滚动都应请求重绘");
 
-  const wheelEvent = (wheelDelta: number) => ({
-    type: "wheel",
-    wheelDelta,
-    button: "none",
-    x: 10,
-    y: 10,
-    width: 120,
-    height: 20,
-    screenX: 10,
-    screenY: 10,
-    shift: false,
-    alt: false,
-    ctrl: false,
-  });
-  const wheelResult = viewer.handleMouse(wheelEvent(10) as any);
+  const wheelResult = viewer.handleMouse({ type: "wheel", wheelDelta: -10000, x: 10, y: 10, width: 120, height: 20 } as any);
   assert.deepEqual(wheelResult?.handled, true);
-  assert.ok(firstContentLine().includes("L6"), "滚轮向下继续滚动");
-
-  viewer.handleMouse(wheelEvent(-1000) as any);
-  assert.ok(firstContentLine().includes("L29") === false, "回滚到顶后不再显示尾部");
-  assert.ok(firstContentLine().includes("L0"), "回滚到顶后显示第一条");
+  assert.ok(rendered().includes("X0"), "滚轮回滚到顶显示第一条");
+  assert.ok(!rendered().includes("X29"), "回顶后尾部不可见");
 
   viewer.handleInput("\x1b"); // Esc
   assert.deepEqual(closed, [1]);
+});
+
+test("edit tool rows render diff previews like pi's built-in presentation", () => {
+  const sections: any[] = [
+    {
+      kind: "tool",
+      tool: {
+        name: "edit",
+        id: "t1",
+        args: { path: "a.txt" },
+        result: { content: [{ type: "text", text: "done" }], details: { diff: "-old\n+new" }, isError: false },
+      },
+    },
+  ];
+  const viewer = new HistoryViewer("测试", sections, themeStub, { tui: { terminal: { rows: 24 }, requestRender: () => {} }, cwd: "/tmp" }, () => {});
+  const rendered = viewer.render(120).join("\n");
+  // pi 的 edit 展示本身就是「标题 + diff 预览常显」，渲染器未导出则用官方 renderDiff 复刻同款
+  assert.ok(rendered.includes("edit"), "标题包含工具名");
+  assert.ok(rendered.includes("+new"), "显示 diff 预览（与 pi 转录一致）");
+});
+
+test("clicking a thinking block toggles its expansion (inherited from pi components)", () => {
+  const sections: any[] = [
+    { kind: "assistant", message: { role: "assistant", content: [{ type: "thinking", thinking: "内部思考内容" }] } },
+  ];
+  const viewer = new HistoryViewer(
+    "测试",
+    sections,
+    themeStub,
+    { tui: { terminal: { rows: 24 }, requestRender: () => {} }, cwd: "/tmp", hideThinkingBlock: true },
+    () => {},
+  );
+  const collapsedLines = viewer.render(120);
+  const thinkingRow = collapsedLines.findIndex((l) => l.includes("Thinking"));
+  assert.ok(thinkingRow >= 5, "找到思考占位行");
+  assert.ok(!collapsedLines.join("\n").includes("内部思考内容"), "折叠时不显示思考正文");
+
+  const result = viewer.handleMouse({
+    type: "click", button: "left", x: 2, y: thinkingRow, width: 120, height: 20, screenX: 2, screenY: thinkingRow, shift: false, alt: false, ctrl: false,
+  } as any);
+  assert.equal(result?.handled, true);
+  assert.ok(viewer.render(120).join("\n").includes("内部思考内容"), "点击后展开显示思考正文");
 });
 
 /* ── 命令 / 快捷键集成 ──────────────────────────────────────────── */
