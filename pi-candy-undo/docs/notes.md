@@ -11,4 +11,4 @@
 - 现象：`resolveTargetSnapshot` 连 baseline 快照都解析不到的消息（极端边界），选择器条目不显示统计后缀；旧行为显示「无文件改动」。
 - 核查结论：**不是 bug，几乎不可达**——正常会话 `ensureBaseline` 必建 baseline，消息都能回落到某个快照并走 `formatStats`（文件数为 0 时即显示「无文件改动」，与旧行为一致）。若未来真机上见到某条消息缺统计后缀，先排查快照/状态文件是否缺失，而不是怀疑渲染。
 - 附带核查：选中该类消息仍会提示 nothingToUndo，行为未变。
-- 易错点：`truncate`（`src/commands.ts`）与 `truncateText`（`extensions/picker.ts`）是两份相同实现（60 字符截断）；修改其中一份时需同步另一份。
+- 易错点：`truncate`（`src/commands.ts`）与 `truncateText`（`extensions/picker.ts`）是两份相同的通用实现（参数化 max；当前调用点分别为 action 标题预览 48、选择器条目 60）；修改其中一份时需同步另一份。
