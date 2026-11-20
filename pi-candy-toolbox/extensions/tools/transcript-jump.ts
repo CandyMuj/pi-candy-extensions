@@ -405,7 +405,7 @@ const VIEWER_MIN_CONTENT_ROWS = 5;
  * overlay 的子组件不做布局测量（renderedOverlayLayouts 只记录边界，不处理 LAYOUT_NODE），
  * ScrollView 在里面永远测不到视口 → 改自绘窗口滚动：render 时按 offset 切片，
  * 滚轮由 handleMouse 消费、↑↓/翻页由 handleInput 处理。
- * 样式：cardBg 底色 + 完整盒边框，与转录背景清晰区隔，避免视觉凌乱。
+ * 样式：customMessageBg 底色（pi 自定义消息框同款）+ 完整盒边框，与转录背景清晰区隔，避免视觉凌乱。
  */
 export class HistoryViewer extends Container implements Focusable {
   private readonly title: string;
@@ -493,7 +493,16 @@ export class HistoryViewer extends Container implements Focusable {
     this.clampOffset();
 
     const border = (text: string): string => this.theme.fg("border", text);
-    const bg = (text: string): string => (this.theme.bg ? this.theme.bg("cardBg", text) : text);
+    // 卡片底色用 pi 自定义消息框同款 token（customMessageBg）；第三方主题可能缺 token，
+    // 统一 try/catch 降级为无样式（盒边框仍可区隔），避免因主题缺色导致 pi 崩溃
+    const style = (fn: (text: string) => string, text: string): string => {
+      try {
+        return fn(text);
+      } catch {
+        return text;
+      }
+    };
+    const bg = (text: string): string => style((t) => (this.theme.bg ? this.theme.bg("customMessageBg", t) : t), text);
     const pad = (line: string): string => {
       const vw = visibleWidth(line);
       return vw > inner ? truncateToWidth(line, inner, "…") : line + " ".repeat(inner - vw);
@@ -501,9 +510,9 @@ export class HistoryViewer extends Container implements Focusable {
 
     const out: string[] = [];
     out.push(border(`┌${"─".repeat(inner)}┐`));
-    out.push(border("│") + bg(pad(this.theme.fg("accent", this.theme.bold(this.title)))) + border("│"));
+    out.push(border("│") + bg(pad(style((_t) => this.theme.fg("customMessageLabel", this.theme.bold(this.title)), this.title))) + border("│"));
     out.push(border("│") + bg(pad("")) + border("│"));
-    out.push(border("│") + bg(pad(this.theme.fg("dim", this.hint))) + border("│"));
+    out.push(border("│") + bg(pad(style((_t) => this.theme.fg("dim", this.hint), this.hint))) + border("│"));
     out.push(border("│") + bg(pad("")) + border("│"));
     const window = all.slice(this.offset, this.offset + rows);
     for (const line of window) out.push(border("│") + bg(pad(line)) + border("│"));

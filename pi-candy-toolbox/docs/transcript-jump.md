@@ -69,7 +69,7 @@
 
 - **渲染继承 pi 原生**：提问原文用 `UserMessageComponent`、助手回复用 `AssistantMessageComponent`（官方导出）——markdown、主题与转录中的消息**完全一致**，美化主题插件自动同步；工具调用以「（工具调用，已略过）」占位符略过
 - **键位与滚轮**：`↑`/`↓` 滚动、`PageUp`/`PageDown` 翻页、滚轮直达查看器（overlay 优先路由，不会带动转录）、`Esc`/`Enter` 返回列表（保持之前的选择位置）；提示行固定在正文上方，内容超高不被裁剪
-- **自绘卡片与窗口滚动**：overlay 合成不带背景，查看器自绘 `cardBg` 底色 + 完整盒边框，与转录背景清晰区隔；滚动为窗口切片（overlay 子组件无布局测量，ScrollView 不可用），滚轮由 `handleMouse` 消费
+- **自绘卡片与窗口滚动**：overlay 合成不带背景，查看器自绘 `customMessageBg` 底色（pi 自定义消息框同款，缺该 token 的主题降级为无底色）+ 完整盒边框，与转录背景清晰区隔；滚动为窗口切片（overlay 子组件无布局测量，ScrollView 不可用），滚轮由 `handleMouse` 消费
 - 全程**不滚动转录、不切换会话活动点**——数据来自 `sessionManager.getEntries()` 的原始条目，被压缩的原文仍在会话文件里，只读展示即可
 - 任何失败（如读取不到原文）：notify 后**停在当前**，不做任何滚动
 - **已知局限**：其它扩展注册的 markdown transformer（`pi.registerMarkdownTransformer`）目前没有读取 API，依赖 transformer 的美化（如图片渲染类插件）在查看器中不生效；主题/样式类美化不受影响。若 pi 后续开放 transformer 读取能力，再接入以完全对齐
