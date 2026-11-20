@@ -107,11 +107,11 @@ test("updateToolConfig writes the tool key and preserves other keys", () => {
 });
 
 test("updateToolConfig merges into an existing tool object", () => {
-  writeConfig({ "click-cursor": { debug: true, keep: 1 } });
-  assert.equal(updateToolConfig("click-cursor", { debug: false }), undefined);
+  writeConfig({ "editor-history": { debug: true, keep: 1 } });
+  assert.equal(updateToolConfig("editor-history", { debug: false }), undefined);
 
   const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
-  assert.deepEqual(raw["click-cursor"], { debug: false, keep: 1 });
+  assert.deepEqual(raw["editor-history"], { debug: false, keep: 1 });
 });
 
 test("updateToolConfig returns the error message instead of throwing", () => {

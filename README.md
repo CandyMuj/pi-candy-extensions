@@ -4,7 +4,7 @@
 
 > **⚠️ 开发验证版本：pi `1.5.2`**
 >
-> 本仓库所有插件均在此版本下开发、验证（扩展 API 与 TUI 内部机制以该版本为准）。pi 后续更新可能导致部分插件不可用（尤其是依赖 TUI 内部机制的 `pi-candy-toolbox` 的 click-cursor 工具）；若更新后出现问题，可临时回退到本版本：
+> 本仓库所有插件均在此版本下开发、验证（扩展 API 与 TUI 内部机制以该版本为准）。pi 后续更新可能导致部分插件不可用（尤其是依赖 TUI 内部机制的 `pi-candy-toolbox` 的 editor-history 工具）；若更新后出现问题，可临时回退到本版本：
 >
 > ```bash
 > # 以 npm 全局安装为例（按你的实际安装方式调整）
@@ -21,7 +21,7 @@
 > { "tuiMode": "fullscreen" }
 > ```
 >
-> pi 的默认模式为 `regular`（inline）。鼠标上报只在 fullscreen 下由 pi 开启（regular 模式 TUI 不捕获鼠标），因此依赖鼠标的功能——如 `pi-candy-toolbox` 的 `click-cursor` 点击定位、`transcript-jump` 跳转——在 regular 模式下不可用；各插件的模式差异见其自身文档。
+> pi 的默认模式为 `regular`（inline）。鼠标上报只在 fullscreen 下由 pi 开启（regular 模式 TUI 不捕获鼠标），因此依赖鼠标的功能——如 pi 官方的点击定位、`pi-candy-toolbox` 的 `transcript-jump` 跳转——在 regular 模式下不可用；各插件的模式差异见其自身文档。
 
 ## 推荐使用的 pi 版本
 
@@ -29,14 +29,14 @@
 
 | 你要的功能 | 建议版本 | 说明 |
 |-----------|---------|------|
-| 全量功能 + **官方原生点击定位**（推荐） | `1.5.2`（或 ≥ `0.85.0`） | pi 自 `0.85.0` 起原生支持「点击输入框定位光标」，且额外覆盖 autocomplete 条目点击、拖拽选区、双击/三击选词；`0.85.1` 修掉了原生点击的 hover 误选条目问题。此类版本上 `pi-candy-toolbox` 的 `click-cursor` 工具可关闭（`{"click-cursor": false}`），官方稳定后退役（见[文档](pi-candy-toolbox/docs/click-cursor.md)） |
-| 想用 `click-cursor` 工具（官方无原生支持的场景） | `0.84.3` / `0.84.4` | `0.84.x` 及以下官方没有原生点击定位，该功能只能由工具提供（工具即验证于 `0.84.3`）；`0.85.x` 上工具也能继续用（与官方能力重叠） |
+| 全量功能 + **官方原生点击定位**（推荐） | `1.5.2`（或 ≥ `0.85.0`） | pi 自 `0.85.0` 起原生支持「点击输入框定位光标」，且额外覆盖 autocomplete 条目点击、拖拽选区、双击/三击选词；`0.85.1` 修掉了原生点击的 hover 误选条目问题。`pi-candy-toolbox` 的 `click-cursor` 工具已随 1.1.0 退役（点击定位交给官方原生；其保留的「会话重建后重建编辑器历史」迁移为 `editor-history` 工具，见[文档](pi-candy-toolbox/docs/editor-history.md)） |
+| 想用旧版 `click-cursor` 工具（toolbox ≤ 1.0.0，官方无原生支持的场景） | `0.84.3` / `0.84.4` | `0.84.x` 及以下官方没有原生点击定位，该功能只能由旧版工具提供（即验证于 `0.84.3`）；`0.85.x` 上旧版工具也能继续用（与官方能力重叠）。toolbox 1.1.0 起已移除该工具，点击定位请直接用官方原生能力 |
 | `win-notify`「等待用户」精确识别 | ≥ `0.84.4` | 官方新增 `ui_prompt_start` / `ui_prompt_end` 扩展事件，可精确识别“阻塞等待用户输入”（覆盖所有 `ctx.ui` 提问交互，如 ask、plan、permission 等插件），不再依赖插件名猜测；旧版回退为按 `waitingTools` 工具名匹配，对新插件/改名工具可能漏判 |
 
 ```bash
 # 按需选择，以 npm 全局安装为例（按你的实际安装方式调整）
 npm install -g @earendil-works/pi-coding-agent@1.5.2   # 推荐：官方原生点击定位
-npm install -g @earendil-works/pi-coding-agent@0.84.4   # 需要 click-cursor 工具（官方无原生支持）
+npm install -g @earendil-works/pi-coding-agent@0.84.4   # 需要旧版 click-cursor 工具（toolbox ≤ 1.0.0；官方无原生支持）
 ```
 
 ## 插件列表

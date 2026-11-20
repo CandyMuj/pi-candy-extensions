@@ -71,7 +71,7 @@
 
 - **仅 fullscreen 可跳**（alt-screen 才有转录行与 ScrollView）；regular（inline）/ print / json / rpc 不可用（regular 下列表能开，选中后提示）；
 - **`/compact` 后**旧消息不渲染：旧提问降级到顶部摘要处，见上；
-- 依赖 tui 内部结构（`tui.children` 的 document/chat 容器顺序与组件 `render` 测高，无官方公开 API），与 click-cursor 同级别的**无回归保证**：行号越界/组件渲染失败时直接报错，pi 升级后建议跑一遍 `npm test` 回归；
+- 依赖 tui 内部结构（`tui.children` 的 document/chat 容器顺序与组件 `render` 测高，无官方公开 API），与 editor-history 同级别的**无回归保证**：行号越界/组件渲染失败时直接报错，pi 升级后建议跑一遍 `npm test` 回归；
 ### 定位与跳转
 
 - **跳转**：skill 块开头的提问一律定位到 skill 组件，其余定位到用户组件（`locateTarget` 返回 `{ kind, ordinal }`，两类序号各自与渲染组件一一对应）；

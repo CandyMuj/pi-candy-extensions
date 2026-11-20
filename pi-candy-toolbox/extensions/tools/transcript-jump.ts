@@ -16,7 +16,7 @@
  * 已知限制（详见 docs/transcript-jump.md）：
  *   - 仅 fullscreen 可跳（alt-screen 才有 ScrollView 与布局树）；regular/headless 不可用
  *   - /compact 后旧消息不再渲染：选择被压缩的提问时降级滚动到会话顶部（摘要处）
- *   - 依赖 tui.children 的结构与组件 render 测高（与 click-cursor 同级内部 API 依赖），无回归保证
+ *   - 依赖 tui.children 的结构与组件 render 测高（与 editor-history 同级内部 API 依赖），无回归保证
  */
 import { getSelectListTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {

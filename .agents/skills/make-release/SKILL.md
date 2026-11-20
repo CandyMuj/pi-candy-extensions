@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 - **tag 命名**：`release-YYYY.MM.DD`；同日第二次发布用 `release-YYYY.MM.DD-2`；**永远不要**用插件版本号当 tag（各插件版本独立，会撞名且误导）
 - **插件顺序** = 根 `README.md`「插件列表」表格顺序（当前：themes → win-notify → toolbox → undo）；新增插件一律**追加到表尾**
-- **toolbox 工具顺序** = `pi-candy-toolbox/extensions/index.ts` 的 `TOOLS` 数组顺序（当前：hello → session-title → click-cursor → transcript-jump）；新增工具一律**追加到数组尾**
+- **toolbox 工具顺序** = `pi-candy-toolbox/extensions/index.ts` 的 `TOOLS` 数组顺序（当前：hello → session-title → editor-history → transcript-jump）；新增工具一律**追加到数组尾**
 - 顺序与版本由 `scripts/release-notes.mjs` 每次从仓库文件读取，**不要硬编码**；每次 release 的排版必须与既有顺序一致，便于长期翻阅
 
 ## 铁律

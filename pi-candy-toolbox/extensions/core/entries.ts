@@ -1,6 +1,6 @@
 /**
  * 会话 entry 公共工具：多工具共享的 entry 形状与纯文本提取。
- * 由 click-cursor / session-title / transcript-jump 三处重复实现收敛而来，
+ * 由 editor-history / session-title / transcript-jump 三处重复实现收敛而来，
  * 新工具一律从这里引用，不要各自再定义（保持单一实现）。
  */
 

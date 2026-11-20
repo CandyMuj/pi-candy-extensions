@@ -69,7 +69,7 @@ pi -e .                                  # 临时试用，不写入配置
 |---------|------|------|------|
 | `hello` | 示例工具：注册 `/candy-hello` 命令 | — | 关闭 |
 | `session-title` | 生成/重新生成会话标题：`/candy-title [提示词]`，`config` 子命令查看/修改配置 | [docs/session-title.md](docs/session-title.md) | 启用 |
-| `click-cursor` | 全屏模式点击输入框移动光标（无命令） | [docs/click-cursor.md](docs/click-cursor.md) | 启用 |
+| `editor-history` | 会话重建后重建编辑器历史（无命令，↑↓ 切换修复） | [docs/editor-history.md](docs/editor-history.md) | 启用 |
 | `transcript-jump` | 打开提问列表并跳转到对应位置：`/candy-jump`（快捷键 `alt+j`，仅全屏） | [docs/transcript-jump.md](docs/transcript-jump.md) | 启用 |
 
 ## 添加新工具
@@ -121,7 +121,7 @@ npm run typecheck  # tsc --noEmit
 
 | 被测对象 | 命名 |
 |----------|------|
-| 简单工具（单文件） | `tests/<tool-id>.test.ts`（如 `session-title.test.ts`、`click-cursor.test.ts`） |
+| 简单工具（单文件） | `tests/<tool-id>.test.ts`（如 `session-title.test.ts`、`editor-history.test.ts`） |
 | 复杂工具（目录） | `tests/<tool-id>/` 目录，内放多个 `*.test.ts` |
 | `core/` 等非工具模块（插件级） | `tests/$toolbox/<模块名>.test.ts`（如 `config.test.ts`、`log.test.ts`） |
 | 公共 stub / 辅助函数 | `tests/helpers.ts` |
