@@ -24,6 +24,7 @@ import {
   fuzzyMatch,
   getKeybindings,
   truncateToWidth,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 
 /** 结构化选项：id 为选中回调的返回值；text 为原始文案（统计模式会补序号与统计后缀）。 */
@@ -36,6 +37,8 @@ export interface PickerItem {
 const PAGE_SIZE = 12;
 /** 统计并发数：页内并行、避免瞬时文件 IO 风暴。 */
 const STATS_CONCURRENCY = 4;
+/** 条目文本最大显示宽度（与 toolbox transcript-jump 的预览保护一致，统一算法与取值）。 */
+const PICKER_TEXT_MAX_WIDTH = 400;
 
 /** 横向分隔线（宽度自适应；颜色显式传入）。 */
 class BorderLine {
@@ -54,11 +57,7 @@ class BorderLine {
   }
 }
 
-/** 把文本压成单行并截断到 max 个字符（同 commands.ts 的 truncate 语义）。 */
-function truncateText(text: string, max: number): string {
-  const singleLine = text.replace(/\s+/g, " ").trim();
-  return singleLine.length > max ? `${singleLine.slice(0, max - 1)}…` : singleLine;
-}
+import { truncateDisplay } from "../src/text.ts";
 
 interface PickerDialogOptions {
   title: string;
@@ -97,6 +96,7 @@ export class PickerDialog extends Container implements Focusable {
   // 异步统计调度：suffixById[id] = 已算好的统计文案；pending 为未算 id 队列
   private readonly suffixById = new Map<string, string>();
   private readonly doneIds = new Set<string>();
+  private readonly metaById = new Map<string, { ordinal: number; text: string }>();
   private pending: string[] = [];
   private computing = 0;
 
@@ -127,6 +127,7 @@ export class PickerDialog extends Container implements Focusable {
     this.onPick = opts.onPick;
     this.onClose = opts.onClose;
     this.pickerItems = opts.items;
+    this.items.forEach((item, index) => this.metaById.set(item.id, { ordinal: index + 1, text: item.text }));
     this.options = this.items.map((item) => this.labelFor(item, this.items.indexOf(item) + 1));
     this.pageSize = Math.min(PAGE_SIZE, Math.max(1, this.items.length));
 
@@ -164,7 +165,7 @@ export class PickerDialog extends Container implements Focusable {
       return item.text;
     }
     const suffix = this.suffixById.get(item.id) ?? this.computingLabel;
-    const base = `${ordinal}. ${truncateText(item.text, 60)}`;
+    const base = `${ordinal}. ${truncateDisplay(item.text, PICKER_TEXT_MAX_WIDTH)}`;
     return suffix ? `${base} · ${suffix}` : base;
   }
 
@@ -177,7 +178,8 @@ export class PickerDialog extends Container implements Focusable {
       minPrimaryColumnWidth: 10,
       maxPrimaryColumnWidth: 72,
       // 按显示宽度截断（含 CJK/emoji 宽度），超宽加省略号——文案本身已做字符截断，这里兜底窄终端
-      truncatePrimary: (ctx) => truncateToWidth(ctx.text, ctx.maxWidth, "…"),
+      // 统计模式补充：先扣除「序号前缀 + 统计后缀」宽度再截主文本，保证统计完整可见（主内容让位、附加内容保底）
+      truncatePrimary: (ctx) => this.truncateRow(ctx),
     });
     list.onSelectionChange = (item) => {
       this.currentIndex = this.filteredItems.indexOf(item);
@@ -185,6 +187,28 @@ export class PickerDialog extends Container implements Focusable {
     list.onSelect = (item) => this.onPick(item.value);
     list.onCancel = () => this.onClose();
     return list;
+  }
+
+  /** 当前统计文案：已算好用结果，未算好用占位；纯文本模式无统计。 */
+  private statsPartFor(id: string): string | undefined {
+    if (!this.statsFor) {
+      return undefined;
+    }
+    const suffix = this.suffixById.get(id) ?? this.computingLabel;
+    return suffix || undefined;
+  }
+
+  /** 行截断：统计模式只截「序号 + 主文本 · 统计」中的主文本；其余模式整行按宽度截断。 */
+  private truncateRow(ctx: { text: string; maxWidth: number; item: { value: string } }): string {
+    const meta = this.metaById.get(ctx.item.value);
+    const stats = this.statsPartFor(ctx.item.value);
+    if (!meta || !stats) {
+      return truncateToWidth(ctx.text, ctx.maxWidth, "…");
+    }
+    const suffix = ` · ${stats}`;
+    const head = `${meta.ordinal}. `;
+    const textMax = Math.max(1, ctx.maxWidth - visibleWidth(head) - visibleWidth(suffix));
+    return head + truncateDisplay(meta.text, Math.min(textMax, PICKER_TEXT_MAX_WIDTH)) + suffix;
   }
 
   /** 统计到达后重建标签并刷新列表（保留当前选中项与过滤词）。 */

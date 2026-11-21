@@ -4,7 +4,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { PickerDialog } from "../extensions/picker.ts";
+
+initTheme("dark"); // SelectList 渲染需要已初始化的主题
 
 const themeStub = {
   fg: (_name: string, text: string) => text,
@@ -100,4 +103,29 @@ test("plain mode keeps raw labels and computes nothing", async () => {
   });
   assert.deepEqual(dialog.labels, items, "纯文本模式原样展示");
   assert.deepEqual([...dialog.options], items, "options 保持原选项");
+});
+
+test("stats suffix stays fully visible when the row is narrow (main text yields)", async () => {
+  const longText = "这是一个非常长的提问内容".repeat(10);
+  const items = [{ id: "m0", text: longText }];
+  const dialog = new PickerDialog({
+    title: "t",
+    items,
+    hint: "h",
+    theme: themeStub,
+    onPick: () => {},
+    onClose: () => {},
+    requestRender: () => {},
+    computingLabel: "计算中…",
+    statsFor: async () => "3 个文件 · +12 -0",
+  });
+  await waitUntil(() => dialog.labels[0]?.includes("3 个文件") === true, 2000);
+
+  // 窄宽度渲染：主文本被截断，统计后缀必须完整展示（行尾不得以省略号结束）
+  const lines = dialog.render(60);
+  const row = lines.find((line) => line.includes("3 个文件"));
+  assert.ok(row, "列表行包含统计");
+  assert.ok(row.includes("3 个文件 · +12 -0"), "统计后缀完整展示");
+  assert.ok(!row.trimEnd().endsWith("…"), "省略号只出现在主文本，不出现在行尾统计处");
+  assert.ok(row.includes("…"), "主文本按宽度截断加省略号");
 });

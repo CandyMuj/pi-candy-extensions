@@ -11,4 +11,5 @@
 - 现象：`resolveTargetSnapshot` 连 baseline 快照都解析不到的消息（极端边界），选择器条目不显示统计后缀；旧行为显示「无文件改动」。
 - 核查结论：**不是 bug，几乎不可达**——正常会话 `ensureBaseline` 必建 baseline，消息都能回落到某个快照并走 `formatStats`（文件数为 0 时即显示「无文件改动」，与旧行为一致）。若未来真机上见到某条消息缺统计后缀，先排查快照/状态文件是否缺失，而不是怀疑渲染。
 - 附带核查：选中该类消息仍会提示 nothingToUndo，行为未变。
-- 易错点：`truncate`（`src/commands.ts`）与 `truncateText`（`extensions/picker.ts`）是两份相同的通用实现（参数化 max；当前调用点分别为 action 标题预览 48、选择器条目 60）；修改其中一份时需同步另一份。
+- 易错点：展示文本截断已统一为显示宽度算法（`src/text.ts` 的 `truncateDisplay`：折叠单行 + `truncateToWidth`）；undo 与 toolbox（transcript-jump.ts 同名函数）是跨包两份逐字相同实现，修改必须两边同步。宽度各传各的：undo 列表条目与 jump 预览统一 400，undo 操作菜单标题预览 96（原 48 字符 ×2 的中文等效宽度）。
+- 附加内容保底：undo 选择器的统计后缀不参与主文本截断——`truncatePrimary` 先扣除「序号前缀 + 统计后缀」宽度再截主文本，保证统计完整可见（主内容让位）；jump 的附加列（时间/压缩标记）用主列预留（终端宽 − 24）保证，两套机制不同是有意差异。

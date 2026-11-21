@@ -5,6 +5,7 @@
 import { collectReferencedBackups, peekRedo, popRedo, pushRedo } from "./state.ts";
 import { deleteUnreferencedBackups } from "./storage.ts";
 import { computeStats, RestoreError, restoreSnapshot } from "./restore.ts";
+import { truncateDisplay } from "./text.ts";
 import type { Translator } from "./i18n.ts";
 import type { CommandApi, UndoSession } from "./session.ts";
 import type { BranchEntry, RedoItem, RestoreStats, Snapshot } from "./types.ts";
@@ -74,10 +75,8 @@ export function resolveTargetSnapshot(
   return snapshots.find((snapshot) => snapshot.kind === "baseline");
 }
 
-function truncate(text: string, max: number): string {
-  const singleLine = text.replace(/\s+/g, " ").trim();
-  return singleLine.length > max ? `${singleLine.slice(0, max - 1)}…` : singleLine;
-}
+/** 操作菜单标题里所选消息预览的最大显示宽度（≈原 48 字符的中文等效宽度）。 */
+const ACTION_PREVIEW_MAX_WIDTH = 96;
 
 /** 相对时间描述；无法解析时间戳时返回 undefined（调用方只展示消息本身）。 */
 export function formatRelativeTime(iso: string | undefined, now: Date, t: Translator): string | undefined {
@@ -154,7 +153,7 @@ type Action = "both" | "conversation" | "code" | "summarize" | "summarize-custom
 
 /** 菜单标题：操作标题 + 所选消息（时间单独一行，避免长消息挤出时间）+ 手动修改提示。 */
 export function buildActionTitle(session: UndoSession, message: UserMessage, now: Date = new Date()): string {
-  const preview = truncate(message.text, 48) || session.t("picker.emptyMessage");
+  const preview = truncateDisplay(message.text, ACTION_PREVIEW_MAX_WIDTH) || session.t("picker.emptyMessage");
   const when = formatRelativeTime(message.entry.timestamp, now, session.t);
   const lines = [session.t("action.title"), session.t("action.selectedMessage", { preview })];
   if (when) {

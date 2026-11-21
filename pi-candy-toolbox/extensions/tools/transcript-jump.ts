@@ -72,6 +72,12 @@ const PREVIEW_MAX_WIDTH = 400;
 /** 主列给右侧时间/压缩标记列预留的最小显示宽度 */
 const PICKER_TIME_RESERVE = 24;
 
+/** 展示文本处理：折叠为单行并按显示宽度截断（CJK/emoji 显示宽度感知，不破半字）。
+ * 与 pi-candy-undo（src/text.ts）的 truncateDisplay 是跨包的两份逐字相同实现——修改本文件时必须同步另一份。 */
+function truncateDisplay(text: string, maxWidth: number): string {
+  return truncateToWidth(text.replace(/\s+/g, " ").trim(), maxWidth, "…");
+}
+
 // ── 局部最小类型（零额外依赖）──────────────────────────────────────
 /** 渲染组件的最小形状（render 返回行数组） */
 interface ComponentLike {
@@ -353,7 +359,7 @@ export function listPrompts(entries: EntryLike[]): PromptItem[] {
       entryId: e.id ?? "",
       index,
       // 折叠成单行；只做显示宽度上限保护（不按固定字符数截断，行内容由 SelectList 按终端宽度截断并加省略号）
-      text: truncateToWidth(text.replace(/\s+/g, " "), PREVIEW_MAX_WIDTH, "…"),
+      text: truncateDisplay(text, PREVIEW_MAX_WIDTH),
       timestamp: toTimestamp(e.timestamp),
     });
   }
