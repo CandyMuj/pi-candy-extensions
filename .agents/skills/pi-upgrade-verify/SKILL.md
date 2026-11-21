@@ -36,12 +36,22 @@ pi CLI 与 `@earendil-works/pi-tui` / `@earendil-works/pi-coding-agent` 版本 l
 2. **无 test 脚本但有 `tests/` 目录**：`node --test "tests/**/*.ts"`（node ≥ 23 默认剥离 TS 类型，无需参数）
 3. **build 类脚本跑完后**：`git status` 确认仓库内生成物无 diff（生成脚本应确定性产出）
 4. **版本一致性**：`npm view <包名> version --registry=https://registry.npmjs.org/` 与本地 `package.json` 的 `version` 比对；不一致 → 停下提示「本地有未发布改动，先处理发布」再继续
-5. **加载冒烟**（真实 API 兼容性兜底）：`pi -e <插件目录> -p "ok"` —— 退出码 0 且输出无扩展报错即通过；每个插件消耗一次极简模型调用
+5. **加载冒烟**（真实 API 兼容性兜底；每个插件消耗一次极简模型调用）：
+
+   ```bash
+   timeout 60 pi -e <插件目录> --mode json -p "ok" < /dev/null 2>&1 | tee /tmp/pi-temp/smoke-<插件名>.log
+   ```
+
+   判定标准（**不以退出码为准**）：输出中出现 `"type":"agent_settled"`（会话已跑完，说明扩展在真实 pi 里完成注册 + 最小会话生命周期）且无扩展报错（`ExtensionError`、`Failed to load extension`、插件名报错堆栈等）即通过；超时内无 `agent_settled` 视为失败。
+
+   > 背景：`pi -e` 临时加载插件后进入 TUI，打印模式跑完会话后进程也不主动退出（pi 的既有行为，不是插件问题）；`agent_settled` 就是「流程完整走完」的信号。每次冒烟顺带探测退出行为：若超时前进程自行退出且退出码 0，说明 pi 已恢复自动退出，可恢复「退出码 0 且输出无报错」的判定。
+   >
+   > `pi -e <目录> --help` / `--version` 会提前短路、**不加载扩展**（实测对不存在的路径也照样 exit 0），不能替代本冒烟。
 
 ### 4. 仓级检查
 
 - `.agents/skills/` 下所有 `.mjs` 脚本：`node --check <文件>`
-- **TUI 内部机制依赖检测**：grep 各插件 `extensions/` 下 `tui.children` / `currentLayout` / `inputListeners` 等内部字段；命中者提示用户——单测与 print 冒烟都不走 TUI 渲染路径，这类依赖需要用户在真实 pi 里做一次交互冒烟（如点一下、触发一次跳转）
+- **TUI 内部机制依赖检测**：grep 各插件 `extensions/` 下 `tui.children` / `currentLayout` / `inputListeners` 等内部字段；命中者提示用户——单测与加载冒烟都不走 TUI 渲染路径，这类依赖需要用户在真实 pi 里做一次交互冒烟（如点一下、触发一次跳转）
 - **根 README**：「开发验证版本」行与回退安装命令更新为新版本
 
 ### 5. 汇报
@@ -53,4 +63,4 @@ pi CLI 与 `@earendil-works/pi-tui` / `@earendil-works/pi-coding-agent` 版本 l
 - **类型回归是第一道关**：devDeps 升到新版本后 typecheck 会暴露 API 变化（例如事件类型从单对象变判别联合）；运行时事件字段的语义变化按新类型修正
 - 单测大量使用 stub 的插件，真实 API 兼容性由「typecheck + pi -e 冒烟」兜底
 - 验证通过前不要发布、不要提交；提交/推送/发布等动作等用户明确指示
-- 若 `pi -e` 冒烟需要跳过（省模型调用），先问用户，不要自行省略
+- 若加载冒烟需要跳过（省模型调用），先问用户，不要自行省略
