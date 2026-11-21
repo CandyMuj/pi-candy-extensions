@@ -325,6 +325,21 @@ test("scrollToRow calls scrollTo and requests a render", () => {
 
 /* ── 选择器交互 ─────────────────────────────────────────────────── */
 
+test("JumpDialog description column keeps time and compressed marker fully visible", () => {
+  const longLabel = "  1. " + "很长的提问内容".repeat(20);
+  const dialog = new JumpDialog(
+    "测试",
+    [{ value: "u1", label: longLabel, description: "2026-11-11 ｜已压缩 · 可查看" }],
+    themeStub,
+    () => {},
+    () => {},
+  );
+  const lines = dialog.render(100);
+  const row = lines.find((line) => line.includes("已压缩"));
+  assert.ok(row, "列表行包含描述列");
+  assert.ok(row.includes("2026-11-11 ｜已压缩 · 可查看"), "描述完整展示（最长时间格式 + 压缩标记不截断）");
+});
+
 test("JumpDialog pages with ←/→ and filters with typed text", () => {
   const items = Array.from({ length: 30 }, (_, index) => ({ value: `id-${index}`, label: `item-${index}`, description: "" }));
   const picked: string[] = [];

@@ -70,7 +70,8 @@ export interface TranscriptJumpConfig {
 /** 预览单行显示宽度上限（防超长消息占内存；正常提问远小于此，视觉截断交给 SelectList 按终端宽度做） */
 const PREVIEW_MAX_WIDTH = 400;
 /** 主列给右侧时间/压缩标记列预留的最小显示宽度 */
-const PICKER_TIME_RESERVE = 24;
+// 描述最长 = 日期时间（YYYY-MM-DD，10）+ 压缩标记（18）= 28；预留 32 → 描述可用 29，全部情况完整展示
+const PICKER_TIME_RESERVE = 32;
 
 /** 展示文本处理：折叠为单行并按显示宽度截断（CJK/emoji 显示宽度感知，不破半字）。
  * 与 pi-candy-undo（src/text.ts）的 truncateDisplay 是跨包的两份逐字相同实现——修改本文件时必须同步另一份。 */
