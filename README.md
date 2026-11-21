@@ -2,13 +2,13 @@
 
 个人 pi 插件集合仓库。
 
-> **⚠️ 开发验证版本：pi `1.5.2`**
+> **⚠️ 开发验证版本：pi `1.6.0`**
 >
 > 本仓库所有插件均在此版本下开发、验证（扩展 API 与 TUI 内部机制以该版本为准）。pi 后续更新可能导致部分插件不可用（尤其是依赖 TUI 内部机制的 `pi-candy-toolbox` 的 editor-history 工具）；若更新后出现问题，可临时回退到本版本：
 >
 > ```bash
 > # 以 npm 全局安装为例（按你的实际安装方式调整）
-> npm install -g @earendil-works/pi-coding-agent@1.5.2
+> npm install -g @earendil-works/pi-coding-agent@1.6.0
 > ```
 >
 > 回退验证正常后，如需升级请逐个插件回归测试后再升。

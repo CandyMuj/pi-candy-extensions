@@ -735,8 +735,8 @@ export class HistoryViewer extends Container implements Focusable {
     this.requestRender();
   }
   /** 各小节组件实例（跨渲染复用，保留折叠/展开状态）与行区间 */
-  private sectionRows: Array<{ component: { render(w: number): string[]; handleMouse?(e: unknown): unknown }; start: number; end: number }> = [];
-  private sectionComponents: Array<{ render(w: number): string[]; handleMouse?(e: unknown): unknown } | undefined> = [];
+  private sectionRows: Array<{ component: { render(w: number): readonly string[]; handleMouse?(e: unknown): unknown }; start: number; end: number }> = [];
+  private sectionComponents: Array<{ render(w: number): readonly string[]; handleMouse?(e: unknown): unknown } | undefined> = [];
   private _focused = false;
 
   get focused(): boolean {
@@ -828,7 +828,7 @@ export class HistoryViewer extends Container implements Focusable {
       if (!s) continue;
       if (lines.length > 0) lines.push("");
       const lineStart = lines.length;
-      let component: { render(w: number): string[]; handleMouse?(e: unknown): unknown } | undefined = this.sectionComponents[i];
+      let component: { render(w: number): readonly string[]; handleMouse?(e: unknown): unknown } | undefined = this.sectionComponents[i];
       if (!component) {
         if (s.kind === "prompt") {
           component = new UserMessageComponent(s.text ?? "", getMarkdownTheme(), 1);
@@ -1148,7 +1148,7 @@ export class JumpDialog extends Container implements Focusable {
   }
 
   /** 宽度变化时重建列表（列宽上限依赖终端宽度；保留当前选中项）。 */
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     const w = Math.max(8, width);
     if (w !== this.builtWidth) {
       this.builtWidth = w;
