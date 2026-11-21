@@ -71,6 +71,8 @@ interface PickerDialogOptions {
   statsFor?: (id: string) => Promise<string>;
   /** 统计未完成时的占位文案（仅统计模式使用） */
   computingLabel?: string;
+  /** 初始选中项下标（重开时保持上次选择） */
+  initialIndex?: number;
 }
 
 /** 选择器：与 pi 原生 select 同款外观（边框 + 粗体标题 + 底部按键提示）。 */
@@ -147,6 +149,12 @@ export class PickerDialog extends Container implements Focusable {
     this.addChild(new Text(opts.theme.fg("dim", opts.hint), 1, 0));
     this.addChild(new Spacer(1));
     this.addChild(new BorderLine((text) => opts.theme.fg("border", text)));
+
+    // 初始选中项（重开时保持上次选择）；SelectList.setSelectedIndex 不触发 onSelectionChange，
+    // 需同步设置 currentIndex，否则统计刷新（refreshList）会把它重置回第一条
+    const initial = Math.min(Math.max(0, opts.initialIndex ?? 0), Math.max(0, this.filteredItems.length - 1));
+    this.currentIndex = initial;
+    this.list.setSelectedIndex(initial);
 
     if (this.statsFor) {
       this.pending = this.items.map((item) => item.id);
@@ -328,6 +336,7 @@ async function pickItems(
   hint: string,
   computingLabel: string | undefined,
   statsFor: ((id: string) => Promise<string>) | undefined,
+  initialIndex = 0,
 ): Promise<string | undefined> {
   const picked = await ui.custom<string | null>((tui, theme, _keybindings, done) => {
     const requestRender = () => {
@@ -342,6 +351,7 @@ async function pickItems(
       theme,
       computingLabel,
       statsFor,
+      initialIndex,
       requestRender,
       onPick: (id) => {
         dialog?.markClosed();
@@ -376,6 +386,7 @@ export async function pickMessageFromList(
   hint: string,
   computingLabel: string,
   statsFor: (id: string) => Promise<string>,
+  initialIndex = 0,
 ): Promise<string | undefined> {
-  return pickItems(ui, title, items, hint, computingLabel, statsFor);
+  return pickItems(ui, title, items, hint, computingLabel, statsFor, initialIndex);
 }

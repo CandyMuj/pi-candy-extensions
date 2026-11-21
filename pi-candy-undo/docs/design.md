@@ -231,6 +231,7 @@ CC 的 `yy1` 等价物。`session_start` 事件带 `reason` 与 `previousSession
    菜单标题：`操作标题` / `空行` / `│ 「所选消息预览」` / `│ （相对时间）` / `空行` / `💡 手动修改提示`
    （中间两行为竖线引用块；时间单独一行，避免长消息挤出时间；超过 30 天显示本地日期；
    无时间戳时省略时间行；无文本时显示占位符；空行与 💡 图标随 `action.title` / `note.manualEdits` 文案定义在语言包中，便于按语言调整）
+   取消语义：二级菜单 Esc 回到一级列表并保持上次选择（重新选择消息），一级列表 Esc 才退出；菜单里显式选 Never mind 与一级 Esc 同义（直接退出）
 7. 执行：
    - code（或 both）：先建 redo-point 快照（当前 trackedFiles 状态，用于 /redo）
      → 恢复文件到 S_M（逐文件 fk2 比较 + Windows 锁重试 3 次）

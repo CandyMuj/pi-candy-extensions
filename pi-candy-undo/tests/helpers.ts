@@ -58,6 +58,7 @@ export class FakeSession {
   navigations: Array<{ targetId: string; options: { summarize: boolean; customInstructions?: string } }> = [];
   navigateCancelled = false;
   selectCalls: string[][] = [];
+  pickInitialIndexes: number[] = [];
   inputCalls: string[] = [];
 
   private selectQueue: SelectAnswer[] = [];
@@ -117,8 +118,9 @@ export class FakeSession {
         const answer = this.selectQueue.shift();
         return answer ? answer(options) : undefined;
       },
-      pickMessage: async (title, items, _statsFor) => {
+      pickMessage: async (title, items, _statsFor, initialIndex) => {
         // 答案谓词吃文本（旧 helper 可直接复用），再按文本回查 id；调用顺序与 select 共用记录
+        this.pickInitialIndexes.push(initialIndex ?? 0);
         this.selectCalls.push([title, ...items.map((item) => item.text)]);
         const answer = this.selectQueue.shift();
         if (!answer) {

@@ -41,8 +41,8 @@ function createCommandApi(ctx: ExtensionCommandContext, session: UndoSession): C
   return {
     ...session.api,
     select: (title, options) => pickFromList(ctx.ui, title, options, session.t("picker.hint")),
-    pickMessage: (title, items, statsFor) =>
-      pickMessageFromList(ctx.ui, title, items, session.t("picker.hint"), session.t("picker.computing"), statsFor),
+    pickMessage: (title, items, statsFor, initialIndex) =>
+      pickMessageFromList(ctx.ui, title, items, session.t("picker.hint"), session.t("picker.computing"), statsFor, initialIndex),
     input: (title, placeholder) => ctx.ui.input(title, placeholder),
     navigateTree: (targetId, options) => ctx.navigateTree(targetId, options),
     waitForIdle: () => ctx.waitForIdle(),

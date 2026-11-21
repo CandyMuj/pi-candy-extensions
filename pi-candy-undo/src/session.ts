@@ -48,6 +48,7 @@ export interface CommandApi extends SessionApi {
     title: string,
     items: readonly PickerItem[],
     statsFor: (id: string) => Promise<string>,
+    initialIndex?: number,
   ): Promise<string | undefined>;
   input(title: string, placeholder?: string): Promise<string | undefined>;
   navigateTree(

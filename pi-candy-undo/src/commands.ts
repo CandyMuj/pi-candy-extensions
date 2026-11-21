@@ -201,57 +201,78 @@ export async function runUndo(session: UndoSession, cmd: CommandApi): Promise<vo
     }
   }
 
-  const pickedId = await cmd.pickMessage(
-    session.t("picker.title", { count: messages.length }),
-    items,
-    async (id) => {
-      const target = targetById.get(id);
-      return target ? formatStats(session, await statsFor(target)) : "";
-    },
-  );
-  if (pickedId === undefined) {
-    return;
-  }
-  const message = messages.find((candidate) => candidate.entry.id === pickedId);
-  if (!message) {
-    return;
-  }
-  const target = targets.get(message.entry.id);
-  if (!target) {
-    session.notifyKey("notify.nothingToUndo", undefined, "info");
-    return;
-  }
-  const stats = await statsFor(target); // 通常已被选择器后台算好（缓存命中），最坏单算一个快照
-  const hasChanges = stats.filesChanged.length > 0;
+  // 一级（消息列表）→ 二级（操作菜单）：二级 Esc 回到一级并保持上次选择，一级 Esc 才退出
+  let selectedIndex = 0;
+  for (;;) {
+    const pickedId = await cmd.pickMessage(
+      session.t("picker.title", { count: messages.length }),
+      items,
+      async (id) => {
+        const resolved = targetById.get(id);
+        return resolved ? formatStats(session, await statsFor(resolved)) : "";
+      },
+      selectedIndex,
+    );
+    if (pickedId === undefined) {
+      return;
+    }
+    const pickedIndex = messages.findIndex((candidate) => candidate.entry.id === pickedId);
+    if (pickedIndex >= 0) {
+      selectedIndex = pickedIndex;
+    }
+    const message = messages.find((candidate) => candidate.entry.id === pickedId);
+    if (!message) {
+      return;
+    }
+    const target = targets.get(message.entry.id);
+    if (!target) {
+      session.notifyKey("notify.nothingToUndo", undefined, "info");
+      return;
+    }
+    const stats = await statsFor(target); // 通常已被选择器后台算好（缓存命中），最坏单算一个快照
+    const hasChanges = stats.filesChanged.length > 0;
 
-  const actions: Array<{ action: Action; label: string }> = [];
-  if (hasChanges) {
-    actions.push({ action: "both", label: `${session.t("action.both")} (${formatStats(session, stats)})` });
-    actions.push({ action: "conversation", label: session.t("action.conversation") });
-    actions.push({ action: "code", label: `${session.t("action.code")} (${formatStats(session, stats)})` });
-  } else {
-    actions.push({ action: "conversation", label: session.t("action.conversation") });
-  }
-  actions.push({ action: "summarize", label: session.t("action.summarize") });
-  actions.push({ action: "summarize-custom", label: session.t("action.summarizeCustom") });
-  actions.push({ action: "nevermind", label: session.t("action.nevermind") });
+    const actions: Array<{ action: Action; label: string }> = [];
+    if (hasChanges) {
+      actions.push({ action: "both", label: `${session.t("action.both")} (${formatStats(session, stats)})` });
+      actions.push({ action: "conversation", label: session.t("action.conversation") });
+      actions.push({ action: "code", label: `${session.t("action.code")} (${formatStats(session, stats)})` });
+    } else {
+      actions.push({ action: "conversation", label: session.t("action.conversation") });
+    }
+    actions.push({ action: "summarize", label: session.t("action.summarize") });
+    actions.push({ action: "summarize-custom", label: session.t("action.summarizeCustom") });
+    actions.push({ action: "nevermind", label: session.t("action.nevermind") });
 
-  const actionLabels = new Map<string, Action>();
-  for (const item of actions) {
-    actionLabels.set(item.label, item.action);
-  }
+    const actionLabels = new Map<string, Action>();
+    for (const item of actions) {
+      actionLabels.set(item.label, item.action);
+    }
 
-  const chosen = await cmd.select(
-    buildActionTitle(session, message),
-    actions.map((item) => item.label),
-  );
-  if (chosen === undefined) {
+    const chosen = await cmd.select(
+      buildActionTitle(session, message),
+      actions.map((item) => item.label),
+    );
+    if (chosen === undefined) {
+      continue; // Esc：回到一级菜单重新选择
+    }
+    const action = actionLabels.get(chosen);
+    if (action === undefined || action === "nevermind") {
+      return;
+    }
+    await executeUndoAction(session, cmd, message, target, action);
     return;
   }
-  const action = actionLabels.get(chosen);
-  if (action === undefined || action === "nevermind") {
-    return;
-  }
+}
+
+/** 执行选定的回退操作（恢复/导航/redo 记账与通知）；由 runUndo 的选择循环调用，不回到循环。 */
+async function executeUndoAction(
+  session: UndoSession,
+  cmd: CommandApi,
+  message: UserMessage,
+  target: Snapshot,
+  action: Action,
+): Promise<void> {
 
   const oldLeafId = cmd.getLeafId();
   let restoredKey: string | null = null;

@@ -105,6 +105,30 @@ test("plain mode keeps raw labels and computes nothing", async () => {
   assert.deepEqual([...dialog.options], items, "options 保持原选项");
 });
 
+test("initialIndex preselects the given row and survives async stats refresh", async () => {
+  const items = [
+    { id: "m0", text: "msg 0" },
+    { id: "m1", text: "msg 1" },
+  ];
+  const dialog = new PickerDialog({
+    title: "t",
+    items,
+    hint: "h",
+    theme: themeStub,
+    onPick: () => {},
+    onClose: () => {},
+    requestRender: () => {},
+    computingLabel: "计算中…",
+    statsFor: async (id) => `s-${id}`, // 立即命中缓存场景：统计到达触发 refreshList
+    initialIndex: 1,
+  });
+  // 等统计刷新完成后，选中行仍是第二项（SelectList.setSelectedIndex 不触发 onSelectionChange）
+  await waitUntil(() => dialog.labels.every((label) => !label.includes("计算中…")), 2000);
+  const lines = dialog.render(60);
+  const selectedRow = lines.find((line) => line.includes("msg 1"));
+  assert.ok(selectedRow?.includes("→"), "统计刷新后第二项仍是选中行（重开保持上次选择）");
+});
+
 test("stats suffix stays fully visible when the row is narrow (main text yields)", async () => {
   const longText = "这是一个非常长的提问内容".repeat(10);
   const items = [{ id: "m0", text: longText }];

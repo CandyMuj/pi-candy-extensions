@@ -206,6 +206,28 @@ test("summarize with custom prompt forwards instructions", async () => {
   }
 });
 
+test("Esc on the action menu returns to the message list instead of exiting", async () => {
+  const h = await makeHarness();
+  try {
+    await writeTextFile(path.join(h.workspace, "a.txt"), "v0");
+    await runOperation(h, { id: "u1", prompt: "first", file: "a.txt", after: "v1" });
+    await runOperation(h, { id: "u2", prompt: "second", file: "a.txt", after: "v2" });
+
+    // 一级选 first → 二级 Esc → 回到一级重选 second → 二级选 Restore code
+    h.fake.queueSelect(selectContaining("first"));
+    h.fake.queueSelect(selectCancel());
+    h.fake.queueSelect(selectContaining("second"));
+    h.fake.queueSelect(selectStartsWith("Restore code ("));
+    await runUndo(h.session, h.fake.api);
+
+    assert.equal(await content(h, "a.txt"), "v1", "二级 Esc 回到一级后重新选择并回退成功");
+    // 消息列表最新在前：[second(0), first(1)]；重开一级列表时保持上次选择的下标
+    assert.deepEqual(h.fake.pickInitialIndexes, [0, 1], "二级 Esc 后重开一级列表保持上次选择");
+  } finally {
+    await removeTempDir(h.root);
+  }
+});
+
 test("cancelling the picker or the menu changes nothing", async () => {
   const h = await makeHarness();
   try {
