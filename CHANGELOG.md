@@ -1,5 +1,63 @@
 # Changelog
 
+## release-2026.11.21（2026-11-21）
+
+> 相对上一次 release：`release-2026.09.20`
+
+### 版本总表
+
+| 插件 | 本次版本 | 相对上次 | 状态 |
+|---|---|---|---|
+| [pi-candy-themes](https://www.npmjs.com/package/pi-candy-themes/v/1.0.0) | 1.0.0 | 1.0.0 | 无更新 |
+| [pi-candy-win-notify](https://www.npmjs.com/package/pi-candy-win-notify/v/2.0.0) | 2.0.0 | 2.0.0 | 无更新 |
+| [pi-candy-toolbox](https://www.npmjs.com/package/pi-candy-toolbox/v/1.1.0) | 1.1.0 | 1.0.0 | 有变更 |
+| [pi-candy-undo](https://www.npmjs.com/package/pi-candy-undo/v/1.1.0) | 1.1.0 | 1.0.0 | 有变更 |
+
+### 各插件变更
+
+#### pi-candy-themes 1.0.0
+
+无更新。
+
+#### pi-candy-win-notify 2.0.0
+
+无更新。
+
+#### pi-candy-toolbox 1.1.0
+
+##### hello — 无更新
+
+##### session-title
+
+- 标题摘要默认配置调整：`maxLength` 改为 30、`sampleChars` 改为 300，长会话名生成的标题更精简，不再占据过多行宽 (0c60779)
+
+##### editor-history — 无更新
+
+##### transcript-jump
+
+- 选择器列表布局调整：主列去掉 72 列上限、为右侧时间/压缩标记列预留 32 列——长提问现在能完整展示，同时时间与「已压缩 · 可查看」标记不再被截断 (759bf53, 965b3f9)
+- 压缩提问查看器内置 pi 同款搜索：右上角搜索框、命中计数与 ‹/› 切换，全部命中轻高亮、当前命中反色强调；同一行多处命中按从左到右、跨行从上到下切换，命中行滚动进视野并保留上下文 (8d3446c)
+- 查看器新增 `diffViewMode` 配置（auto/split/unified）：edit 的 diff 可按双栏或单栏渲染，长行自动换行，修复了长行省略号与背景变黑的问题 (2e7afbe)
+- 压缩提问支持只读查看：跳转到已被压缩的历史提问时弹出只读查看器，以居中 overlay 展示原文与当时的助手回复，继承 pi 原生折叠、thinking 与 edit diff 预览，支持滚轮/按键滚动；修复了第三方主题缺 token 导致的崩溃与底色异常 (41edd48, 62426b5, a279777, 665795a, 81d8340)
+
+##### click-cursor（不在 TOOLS 数组中）
+
+- click-cursor 拆分为 editor-history，点击定位功能退役（改由 pi 原生 click-cursor 承担） (94f7498)
+
+#### pi-candy-undo 1.1.0
+
+- 二级菜单按 Esc 回到一级列表并保持上次选择（一级按 Esc 才退出）；修复了重开列表时选中项被统计刷新重置回第一条的问题 (91059e3)
+- `/undo` 文件统计改为按页异步计算：会话多时选择器不再卡顿，未算完的条目显示「计算中…」并动态刷新；可见页优先、预载下一页，早选早停不浪费 IO (2e8d33c)
+- README 增加置顶提醒：优先用 git 做版本控制，`/undo` 仅作误改时的补救措施 (dd0bdce)
+- 内部维护与文档：版本升至 1.1.0；新增开发备忘并更正截断备忘描述 (a13934e, 49c0b65, 9a84c46)
+
+### 仓库公共
+
+- 全仓适配 pi 1.6.0：devDeps 升级、组件 `render()` 返回类型 `readonly string[]` 适配、README 验证版本同步；pi-upgrade-verify skill 新增并调整冒烟判定为输出信号（`pi -e` 临时加载后进 TUI、打印模式跑完不主动退出，非 bug） (4a8c6fc, d474554, 475d91d, 06ee95a, 86994a1)
+- 展示截断算法跨插件统一为显示宽度截断（undo 与 toolbox 同款实现，CJK/emoji 不破半字）；undo 选择器统计后缀保底完整展示（主文本让位、统计不丢） (945a861)
+- npm-publish skill 更新：无版本变更的包默认跳过并经用户确认；新增发布物仿真与发布后冒烟验证 (194311f, 60569f1)
+- 内部维护与文档：release notes 变更合并与引用格式规则、CHANGELOG 标题层级规则固化 (2ff1c0d, e4c5dc7)
+
 ## release-2026.09.20（2026-09-20）
 
 > 首个 release：自仓库创建（2026-08-27）以来的全部变更，对应 4 个包在 npm 官方源的首次发布。
